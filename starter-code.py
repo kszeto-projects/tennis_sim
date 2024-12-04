@@ -146,11 +146,37 @@ def set_ball_velocity(ball, vel):
 
 def get_ball_state(ball):
     #return pos, vel
-    return np.array(p.getBasePositionAndOrientation(ball)[0]), np.array(p.getBaseVelocity(ball))
+    return np.array(p.getBasePositionAndOrientation(ball)[0]), np.array(p.getBaseVelocity(ball)[0])
 def get_end_effector_vel(robot, end_effector_link_idx):
     ee_vel = p.getLinkState(
         robot, end_effector_link_idx, computeLinkVelocity=1)[6]
     return np.array(ee_vel)
+
+def get_ball_trajectory(ball):
+    #generate a trajectory for the ball to follow
+    #get end effector position + velocity
+    ball_pos, ball_vel = get_ball_state(ball)
+    # we can describe the velocity of the ball as a linear function of time
+    grav = np.array([0, 0, -9.81])
+    print(f"ball_pos: {ball_pos.shape}, ball_vel: {ball_vel.shape}")
+    def vel(t):
+        return ball_vel + grav*t
+
+    def pos(t):
+        return ball_pos + ball_vel*t + 0.5*grav*t**2
+
+    vt = vel
+    pt = pos
+
+    # we can describe the position of the ball as a quadratic function of time
+    # x = x0 + v0*t + 0.5*a*t^2
+    return pt, vt
+
+def plot_ball_trajectory(pt, num_points = 50):
+    #plot the trajectory of the ball
+    ts = np.linspace(0, 1, num_points).reshape(-1,1)
+    points = pt(ts)
+    p.addUserDebugPoints(points, 255*np.ones_like(points), pointSize=5)
 
 def attempt_catch(robot, ball):
     global catch_constraint, has_ball
@@ -182,6 +208,7 @@ def toggle_ball_grav():
     global do_ball_grav
     do_ball_grav = not do_ball_grav
 
+
 def quaternion_to_rotation_matrix(quaternion): 
     x, y, z, w = quaternion
     
@@ -202,8 +229,8 @@ if __name__ == '__main__':
     #plane = p.loadURDF('plane.urdf')
     robot = p.loadURDF('three_link.urdf', useFixedBase=True)
     ball = p.loadURDF(generate_sphere(ball_rad, mass=ball_mass))
-    set_ball_pos(ball, [0.4, 0, 0.2])
-
+    set_ball_pos(ball, [0.8, 0, 0.2])
+    set_ball_velocity(ball, [-1, 0, 3])
 
     # get three movable joints and the end-effector link's index
     num_joints = p.getNumJoints(robot)
@@ -247,8 +274,15 @@ if __name__ == '__main__':
         q = get_joint_angles(robot)
         apply_torques(robot, g(q))
 
-        if not do_ball_grav:
-            p.applyExternalForce(ball, -1, [0, 0, ball_mass * 9.81], [0, 0, 0], p.LINK_FRAME)
+        if do_ball_grav:
+            pt, vt = get_ball_trajectory(ball)
+            plot_ball_trajectory(pt)
+            toggle_ball_grav()
+
+        # if not do_ball_grav:
+        #     p.applyExternalForce(ball, -1, [0, 0, ball_mass * 9.81], [0, 0, 0], p.LINK_FRAME)
+
+
         attempt_catch(robot, ball)
         p.stepSimulation()
         time.sleep(1./240.)
