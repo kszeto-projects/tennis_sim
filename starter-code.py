@@ -8,7 +8,7 @@ import pdb
 from scipy.spatial.transform import Rotation as R
 
 movable_joints = None
-ball_mass = 0.1
+ball_mass = 0.025
 ball_rad = 0.025
 do_ball_grav = True
 catch_constraint = None
@@ -166,7 +166,7 @@ def attempt_catch(robot, ball):
     if np.linalg.norm(ee_pos - ball_pos) < 0.1: # and np.linalg.norm(ee_vel - ball_vel) < 0.1:
         catch_constraint = p.createConstraint(robot, end_effector_link_idx, ball, -1, p.JOINT_FIXED, [0, 0, 0], [0, 0, 0], [0, 0, 0])
         has_ball = True
-        print("Ball caught!")
+        print(f"Ball caught! at pos: {ball_pos}, ee_pos : {ee_pos}")
 
 
 def release_ball():
