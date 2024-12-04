@@ -68,7 +68,7 @@ def g(q):
     return G
 
 
-def jac(q):
+def jac(q, robot):
     q1, q2, q3 = q
     zero_vec = [0, 0, 0]
     jac_t, jac_r = p.calculateJacobian(robot, end_effector_link_idx, zero_vec, [q1, q2, q3], zero_vec, zero_vec)
@@ -227,17 +227,18 @@ if __name__ == '__main__':
     p.setAdditionalSearchPath(pybullet_data.getDataPath())
     p.setGravity(0., 0., -9.81)
     #plane = p.loadURDF('plane.urdf')
-    robot = p.loadURDF('three_link.urdf', useFixedBase=True)
+    robot1 = p.loadURDF('three_link.urdf', useFixedBase=True)
+    robot2 = p.loadURDF('three_link.urdf', basePosition=(2, 0, 0), useFixedBase=True)
     ball = p.loadURDF(generate_sphere(ball_rad, mass=ball_mass))
     set_ball_pos(ball, [0.8, 0, 0.2])
     set_ball_velocity(ball, [-1, 0, 3])
 
     # get three movable joints and the end-effector link's index
-    num_joints = p.getNumJoints(robot)
+    num_joints = p.getNumJoints(robot1)
     movable_joints = []
     end_effector_link_idx = None
     for idx in range(num_joints):
-        info = p.getJointInfo(robot, idx)
+        info = p.getJointInfo(robot1, idx)
         print('Joint {}: {}'.format(idx, info))
 
         joint_type = info[2]
@@ -249,18 +250,19 @@ if __name__ == '__main__':
             end_effector_link_idx = idx
             
     for joint_index in movable_joints:
-        p.changeDynamics(robot, joint_index, linearDamping=0, angularDamping=0)
+        p.changeDynamics(robot1, joint_index, linearDamping=0, angularDamping=0)
 
     # Set joint control mode to make the joints free to move (no motor control)
     for joint_index in movable_joints:
-        p.setJointMotorControl2(bodyIndex=robot,
+        p.setJointMotorControl2(bodyIndex=robot1,
                                 jointIndex=joint_index,
                                 controlMode=p.VELOCITY_CONTROL,
                                 force=0)  # Ensure no motor is controlling the joint
         
 
     # Set the initial joint angles
-    set_joint_angles(robot, [0, 0, 0])
+    set_joint_angles(robot1, [0, 0, 0])
+    set_joint_angles(robot2, [np.pi, 0, 0])
 
     # TODO: Your code here
     
@@ -271,8 +273,10 @@ if __name__ == '__main__':
 
     # hold Ctrl and use the mouse to rotate, pan, or zoom
     for _ in range(10000):
-        q = get_joint_angles(robot)
-        apply_torques(robot, g(q))
+        q1 = get_joint_angles(robot1)
+        q2 = get_joint_angles(robot2)
+        apply_torques(robot1, g(q1))
+        apply_torques(robot2, g(q2))
 
         if do_ball_grav:
             pt, vt = get_ball_trajectory(ball)
@@ -281,9 +285,10 @@ if __name__ == '__main__':
 
         # if not do_ball_grav:
         #     p.applyExternalForce(ball, -1, [0, 0, ball_mass * 9.81], [0, 0, 0], p.LINK_FRAME)
+        print("robot1_ee_pos: " + str(get_end_effector_pos(robot1, end_effector_link_idx)))
+        print("robot2_ee_pos: " + str(get_end_effector_pos(robot2, end_effector_link_idx)))
 
-
-        attempt_catch(robot, ball)
+        attempt_catch(robot1, ball)
         p.stepSimulation()
         time.sleep(1./240.)
 
