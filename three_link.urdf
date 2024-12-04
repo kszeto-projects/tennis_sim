@@ -12,7 +12,7 @@
 	<link name="arm1">
         <inertial>
             <origin xyz="0 0 0.1" rpy="0 0 0" />
-            <mass value="0.0754"/>
+            <mass value="0.07539822368615504"/>
             <inertia ixx="0.000259" iyy="0.000259" izz="0.00001508" ixy="0" ixz="0" iyz="0" />
         </inertial>
 		<visual>
@@ -35,7 +35,7 @@
 	<link name="arm2">
         <inertial>
             <origin xyz="0.1 0 0" rpy="0 -1.57 0" />
-            <mass value="0.0754"/>
+            <mass value="0.07539822368615504"/>
             <inertia ixx="0.001036" iyy="0.001036" izz="0.0000151" ixy="0" ixz="0" iyz="0" />
         </inertial>
 		<visual>
@@ -59,7 +59,7 @@
 	<link name="arm3">
         <inertial>
             <origin xyz="0.1 0 0" rpy="0 1.57 0" />
-            <mass value="0.0754"/>
+            <mass value="0.07539822368615504"/>
             <inertia ixx="0.001036" iyy="0.001036" izz="0.0000151" ixy="0" ixz="0" iyz="0" />
         </inertial>
 		<visual>
@@ -79,6 +79,29 @@
 		<limit lower="-1000" upper="1000" effort="2000" velocity="1000"/>
         <dynamics damping="0" friction="0" />
 	</joint>
+
+	<link name='end_effector'>
+	    <inertial>
+			<origin xyz="-0.01 0 0" rpy="0 0 0"/>
+			<mass value="0.0"/>
+			<inertia ixx="0.0" iyy="0.0" izz="0.0" ixy="0" ixz="0" iyz="0" />
+		</inertial>
+		<visual>
+			<origin rpy='0.0 0.0 0.0' xyz='-0.01 0.0 0.0'/>
+			<geometry>
+                <box size='0.02 0.02 0.02'/>
+			</geometry>
+			<material name='green'/>
+		</visual>
+    </link>
+
+	<joint name="end_effector_on_end" type="fixed">
+		<parent link="arm3"/>
+		<child link="end_effector"/>
+		<origin rpy="0 0 0" xyz="0.2 0 0"/>
+
+	</joint>
+
 
 
 </robot>
