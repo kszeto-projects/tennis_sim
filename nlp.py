@@ -1,6 +1,5 @@
 import casadi as ca
 import numpy as np
-from skimage.morphology import max_tree
 
 from dynamics import D, C, g, forward_kinematics, g_casadi
 
