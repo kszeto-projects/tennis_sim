@@ -2,10 +2,11 @@ import time
 import numpy as np
 import pybullet as p
 import pybullet_data
+import dynamics
 from numpy import sin, cos, pi
 import os
 import pdb
-from scipy.spatial.transform import Rotation as R
+
 
 movable_joints = None
 ball_mass = 0.025
@@ -14,59 +15,17 @@ do_ball_grav = True
 catch_constraint = None
 end_effector_link_idx = None
 has_ball = False
-def D(q):
-    q1, q2, q3 = q
-    ell1 = .2
-    ell2 = .2
-    ell3 = .2
-    r1 = .02
-    r2 = .02
-    r3 = .02
-    rho = 300
+ball = None
+robot1 = None
+robot2 = None
 
-    return np.array([[pi*rho*(0.5*ell1*r1**4 - 0.0833333333333333*ell2**3*r2**2*sin(q3)*sin(q2 + q3) + 0.0833333333333333*ell2**3*r2**2*cos(q2) + 0.25*ell2**3*r2**2*cos(q3)**2 + 1.0*ell2**2*ell3*r3**2*cos(q3)**2 - 0.166666666666667*ell2*ell3**2*r2**2*sin(q2)*sin(q3)*cos(q2 + q3) + 0.0833333333333333*ell2*ell3**2*r2**2*cos(q2)**2 + 0.0833333333333333*ell2*ell3**2*r2**2*cos(q3)**2 - 0.0833333333333333*ell2*ell3**2*r2**2 + 1.0*ell2*ell3**2*r3**2*cos(q3)*cos(q2 + q3) + 0.25*ell2*r2**4*sin(q3)*sin(q2 + q3) + 0.25*ell2*r2**4*cos(q2) + 0.5*ell2*r2**2*r3**2*sin(q2)*sin(q3)*cos(q2 + q3) - 0.25*ell2*r2**2*r3**2*cos(q2)**2 - 0.25*ell2*r2**2*r3**2*cos(q3)**2 + 0.75*ell2*r2**2*r3**2 - 0.5*ell3**3*r3**2*sin(q2)*sin(q3)*cos(q2 + q3) + 0.25*ell3**3*r3**2*cos(q2)**2 + 0.25*ell3**3*r3**2*cos(q3)**2 - 0.25*ell3**3*r3**2), 0, 0],
-                    [0, pi*rho*(0.333333333333333*ell2**3*r2**2 + 1.0*ell2**2*ell3*r3**2 + 0.0833333333333333*ell2*ell3**2*r2**2 + 1.0*ell2*ell3**2*r3**2*cos(q2) + 0.25*ell2*r2**4 + 0.25*ell2*r2**2*r3**2 + 0.25*ell3**3*r3**2), pi*rho*(0.0833333333333333*ell2*ell3**2*r2**2 + 0.5*ell2*ell3**2*r3**2*cos(q2) + 0.25*ell2*r2**2*r3**2 + 0.25*ell3**3*r3**2)],
-                    [0, pi*rho*(0.0833333333333333*ell2*ell3**2*r2**2 + 0.5*ell2*ell3**2*r3**2*cos(q2) + 0.25*ell2*r2**2*r3**2 + 0.25*ell3**3*r3**2), pi*rho*(0.0833333333333333*ell2*ell3**2*r2**2 + 0.25*ell2*r2**2*r3**2 + 0.25*ell3**3*r3**2)]])
-
-
-def C(q, qdot):
-    q1, q2, q3 = q
-    q1dot, q2dot, q3dot = qdot
-    ell1 = .2
-    ell2 = .2
-    ell3 = .2
-    r1 = .02
-    r2 = .02
-    r3 = .02
-    rho = 300
-    g = 9.81
-    return np.array([[q1dot*pi*rho*(-0.0416666666666667*q3dot*ell2**3*r2**2*sin(q2) - 0.0416666666666667*q3dot*ell2**3*r2**2*sin(q2 + 2*q3) - 0.0833333333333333*q3dot*ell2*ell3**2*r2**2*sin(2*q2 + 2*q3) - 0.5*q3dot*ell2*ell3**2*r3**2*sin(q2) - 0.5*q3dot*ell2*ell3**2*r3**2*sin(q2 + 2*q3) - 0.375*q3dot*ell2*r2**4*sin(q2) + 0.125*q3dot*ell2*r2**4*sin(q2 + 2*q3) + 0.25*q3dot*ell2*r2**2*r3**2*sin(2*q2 + 2*q3) - 0.25*q3dot*ell3**3*r3**2*sin(2*q2 + 2*q3) - 0.25*q2dot*ell2**3*r2**2*sin(2*q3) - 0.0833333333333333*q2dot*ell2**3*r2**2*sin(q2 + 2*q3) - 1.0*q2dot*ell2**2*ell3*r3**2*sin(2*q3) - 0.0833333333333333*q2dot*ell2*ell3**2*r2**2*sin(2*q2 + 2*q3) - 1.0*q2dot*ell2*ell3**2*r3**2*sin(q2 + 2*q3) + 0.25*q2dot*ell2*r2**4*sin(q2 + 2*q3) + 0.25*q2dot*ell2*r2**2*r3**2*sin(2*q2 + 2*q3) - 0.25*q2dot*ell3**3*r3**2*sin(2*q2 + 2*q3))],
-                    [pi*rho*(-0.5*q3dot**2*ell2*ell3**2*r3**2*sin(q2) - 1.0*q3dot*q2dot*ell2*ell3**2*r3**2*sin(q2) + 0.125*q1dot**2*ell2**3*r2**2*sin(2*q3) + 0.0416666666666667*q1dot**2*ell2**3*r2**2*sin(q2 + 2*q3) + 0.5*q1dot**2*ell2**2*ell3*r3**2*sin(2*q3) + 0.0416666666666667*q1dot**2*ell2*ell3**2*r2**2*sin(2*q2 + 2*q3) + 0.5*q1dot**2*ell2*ell3**2*r3**2*sin(q2 + 2*q3) - 0.125*q1dot**2*ell2*r2**4*sin(q2 + 2*q3) - 0.125*q1dot**2*ell2*r2**2*r3**2*sin(2*q2 + 2*q3) + 0.125*q1dot**2*ell3**3*r3**2*sin(2*q2 + 2*q3))],
-                    [pi*rho*(0.5*q2dot**2*ell2*ell3**2*r3**2*sin(q2) + 0.0208333333333333*q1dot**2*ell2**3*r2**2*sin(q2) + 0.0208333333333333*q1dot**2*ell2**3*r2**2*sin(q2 + 2*q3) + 0.0416666666666667*q1dot**2*ell2*ell3**2*r2**2*sin(2*q2 + 2*q3) + 0.25*q1dot**2*ell2*ell3**2*r3**2*sin(q2) + 0.25*q1dot**2*ell2*ell3**2*r3**2*sin(q2 + 2*q3) + 0.1875*q1dot**2*ell2*r2**4*sin(q2) - 0.0625*q1dot**2*ell2*r2**4*sin(q2 + 2*q3) - 0.125*q1dot**2*ell2*r2**2*r3**2*sin(2*q2 + 2*q3) + 0.125*q1dot**2*ell3**3*r3**2*sin(2*q2 + 2*q3))]])
-
-
-def g(q):
-    q1, q2, q3 = q
-    ell1 = .2
-    ell2 = .2
-    ell3 = .2
-    r1 = .02
-    r2 = .02
-    r3 = .02
-    rho = 300.0
-    g = 9.81
-    pi = np.pi
-
-    G = np.array([[0, (1.0 / 2.0) * pi * g * rho * (
-        ell2 ** 2 * r2 ** 2 * cos(q2) + ell3 * r3 ** 2 * (2 * ell2 * cos(q2) + ell3 * cos(q2 + q3))),
-        (1.0 / 2.0) * pi * ell3 ** 2 * g * r3 ** 2 * rho * cos(q2 + q3)]]).reshape((3, 1))
-
+def grav_comp(q, robot):
+    G = dynamics.g(q)
     if has_ball:
         g = np.array([[0], [0], [9.81]])
-        torque = ball_mass * g.T @ jac(q)
+        torque = ball_mass * g.T @ jac(q, robot)
         G = G + torque.reshape((3,1))
     return G
-
 
 def jac(q, robot):
     q1, q2, q3 = q
@@ -138,13 +97,13 @@ def set_joint_angles(robot, joint_angles):
     for i, joint_index in enumerate(movable_joints):
         p.resetJointState(robot, joint_index, joint_angles[i], 0)
 
-def set_ball_pos(ball, pos):
+def set_ball_pos(pos):
     p.resetBasePositionAndOrientation(ball, pos, [0, 0, 0, 1])
 
-def set_ball_velocity(ball, vel):
+def set_ball_velocity(vel):
     p.resetBaseVelocity(ball, vel, [0, 0, 0])
 
-def get_ball_state(ball):
+def get_ball_state():
     #return pos, vel
     return np.array(p.getBasePositionAndOrientation(ball)[0]), np.array(p.getBaseVelocity(ball)[0])
 def get_end_effector_vel(robot, end_effector_link_idx):
@@ -152,13 +111,12 @@ def get_end_effector_vel(robot, end_effector_link_idx):
         robot, end_effector_link_idx, computeLinkVelocity=1)[6]
     return np.array(ee_vel)
 
-def get_ball_trajectory(ball):
+def get_ball_trajectory():
     #generate a trajectory for the ball to follow
     #get end effector position + velocity
-    ball_pos, ball_vel = get_ball_state(ball)
+    ball_pos, ball_vel = get_ball_state()
     # we can describe the velocity of the ball as a linear function of time
     grav = np.array([0, 0, -9.81])
-    print(f"ball_pos: {ball_pos.shape}, ball_vel: {ball_vel.shape}")
     def vel(t):
         return ball_vel + grav*t
 
@@ -186,7 +144,7 @@ def attempt_catch(robot, ball):
     ee_pos = get_end_effector_pos(robot, end_effector_link_idx)
     ee_vel = get_end_effector_vel(robot, end_effector_link_idx)
     #get ball position + velocity
-    ball_pos, ball_vel = get_ball_state(ball)
+    ball_pos, ball_vel = get_ball_state()
 
     #if ball is close enough to end effector, and moving at a similar speed, apply a constraint to "catch" the ball
     if np.linalg.norm(ee_pos - ball_pos) < 0.1: # and np.linalg.norm(ee_vel - ball_vel) < 0.1:
@@ -230,8 +188,8 @@ if __name__ == '__main__':
     robot1 = p.loadURDF('three_link.urdf', useFixedBase=True)
     robot2 = p.loadURDF('three_link.urdf', basePosition=(2, 0, 0), useFixedBase=True)
     ball = p.loadURDF(generate_sphere(ball_rad, mass=ball_mass))
-    set_ball_pos(ball, [0.8, 0, 0.2])
-    set_ball_velocity(ball, [-1, 0, 3])
+    set_ball_pos([0.8, 0, 0.2])
+    set_ball_velocity([-1, 0, 3])
 
     # get three movable joints and the end-effector link's index
     num_joints = p.getNumJoints(robot1)
@@ -275,11 +233,11 @@ if __name__ == '__main__':
     for _ in range(10000):
         q1 = get_joint_angles(robot1)
         q2 = get_joint_angles(robot2)
-        apply_torques(robot1, g(q1))
-        apply_torques(robot2, g(q2))
+        apply_torques(robot1, grav_comp(q1, robot1))
+        apply_torques(robot2, grav_comp(q2, robot2))
 
         if do_ball_grav:
-            pt, vt = get_ball_trajectory(ball)
+            pt, vt = get_ball_trajectory()
             plot_ball_trajectory(pt)
             toggle_ball_grav()
 
