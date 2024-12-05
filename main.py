@@ -6,7 +6,7 @@ import dynamics
 from numpy import sin, cos, pi
 import os
 import pdb
-from nlp import test_dynamics, nlp
+from nlp import nlp
 
 
 movable_joints = None
@@ -233,11 +233,12 @@ if __name__ == '__main__':
     # hold Ctrl and use the mouse to rotate, pan, or zoom
     last_q = np.zeros(3)
     last_qdot = np.zeros(3)
-    optimal_states, optimal_controls = nlp([0, 0, 0], [0,0,0], .01)
+    optimal_states, optimal_controls = nlp([0, 0, 0], [0,0,0],  .01, T=1.0)
     for _ in range(10000):
         q1 = get_joint_angles(robot1)
         q2 = get_joint_angles(robot2)
-        apply_torques(robot1, optimal_controls[:3])
+        ctrl_idx = _ // (240/100)
+        apply_torques(robot1, optimal_controls[ctrl_idx])
         # apply_torques(robot1, grav_comp(q1, robot1) + .0001)
         # apply_torques(robot2, grav_comp(q2, robot2))
 
@@ -253,9 +254,9 @@ if __name__ == '__main__':
         # print("q1, q1dot = " + str(q1), str(get_joint_velocities(robot1)))
         dt = 1. / 240.
         # res = test_dynamics(q1, get_joint_velocities(robot1), grav_comp(q1, robot1) + .0001, dt)
-        print("diff: " + str(q1 - last_q) + " " + str(get_joint_velocities(robot1) - last_qdot))
-        last_q = res[:3]
-        last_qdot = res[3:]
+        # print("diff: " + str(q1 - last_q) + " " + str(get_joint_velocities(robot1) - last_qdot))
+        # last_q = res[:3]
+        # last_qdot = res[3:]
 
         attempt_catch(robot1, ball)
         p.stepSimulation()

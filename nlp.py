@@ -4,8 +4,7 @@ from skimage.morphology import max_tree
 
 from dynamics import D, C, g, forward_kinematics, g_casadi
 
-def nlp(q, qdot, dt):
-    T = .2
+def nlp(q, qdot, dt, T=1.0):
     m = 3
     n = 6
 
@@ -65,7 +64,7 @@ def nlp(q, qdot, dt):
     final_cost = sol['f']
     print(f'Final cost: {final_cost}')
     optimal_states = sol['x'][0:n * (N + 1)]
-    optimal_controls = sol['x'][n * (N + 1):].reshape((m,N))
+    optimal_controls = np.hstack([sol['x'][-3*N:-2*N], sol['x'][-2*N:-1*N], sol['x'][-1*N:]])
     print('optimal states:', optimal_states)
     print('optimal controls:', optimal_controls)
     return optimal_states, optimal_controls
@@ -108,5 +107,6 @@ def L(x, u, t):
 if __name__ == '__main__':
     q = np.array([0, 0, 0])
     qdot = np.array([0, 0, 0])
-    dt = .01
+    dt = 10.0/240.0
     optimal_states, optimal_controls = nlp(q, qdot, dt)
+    print(optimal_controls.shape)
