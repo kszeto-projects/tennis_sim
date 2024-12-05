@@ -77,6 +77,7 @@ def g(q):
 
     return G
 
+
 def forward_kinematics(q):
     q1, q2, q3 = q[0], q[1], q[2]
     ell1 = .2
