@@ -2,13 +2,19 @@
 import casadi as ca
 import numpy as np
 
-from dynamics import D, C, g, forward_kinematics, g_casadi
+from dynamics import D, C, g, forward_kinematics, g_casadi, jacobian
 from config import grav, ball_pos, ball_vel, robot1_base, robot2_base
-
-def nlp(q, qdot_initial, dt, T=1.0):
+throw_vel = None
+throw_pos = None
+t_catch = None
+def nlp(robot, q, qdot_initial, dt, T=1.0, throw_velocity=None, throw_position=None, catch_time=None):
     m = 3
     n = 3
 
+    global throw_pos,throw_vel, t_catch
+    throw_pos = throw_position
+    throw_vel = throw_velocity
+    t_catch = catch_time
     N = int(T / dt)
 
     Xsym = ca.MX.sym('X', n*(N+1),1)
@@ -21,10 +27,13 @@ def nlp(q, qdot_initial, dt, T=1.0):
     constraints = [X[:,0] - x0]
     for k in range(N):
         x_next = X[:,k] + U[:,k] * dt
-        cost += L(X[:,k], U[:,k], k * dt)
+        if throw_pos is not None:
+            cost += L_throw(X[:,k], U[:,k], k * dt, robot)
+        else:
+            cost += L(X[:,k], U[:,k], k * dt, robot)
         constraints.append(X[:,k+1] - x_next)
         
-     #add acceleration_constraints
+    #add acceleration_constraints
     constraints.append((U[:,0] - qdot_initial))
     for k in range(N-1):
         constraints.append((U[:,k+1] - U[:,k])/dt)
@@ -54,14 +63,14 @@ def nlp(q, qdot_initial, dt, T=1.0):
         'f': cost,
         'g': constraints
     }
-    # opts = {
-    #     'ipopt': {
-    #         'print_level': 12,
-    #         'max_iter': 1000,
-    #         'tol': 1e-6,
-    #     }
-    # }
-    solver = ca.nlpsol('solver', 'ipopt', nlp_prob)
+    opts = {
+        'ipopt': {
+            # 'print_level': 12,
+            'max_iter': 500,
+            # 'tol': 1e-6,
+        }
+    }
+    solver = ca.nlpsol('solver', 'ipopt', nlp_prob,opts)
     # print('solver:', solver)
     x0_guess = np.zeros((n * (N + 1) + m * N, 1))
     x0_guess[0:n * (N + 1)] = np.tile(q, N + 1).reshape(-1,1)
@@ -86,12 +95,20 @@ def b(t):
 
     return pos(t), vel(t)
 
-def L(x, u, t):
-    #ee_pos = forward_kinematics(x[0:3]) for robot1
-    # for robot2:
-    ee_pos = forward_kinematics(x[0:3]) + ([robot2_base - robot1_base])
-    control_weight = 0.0001
+def L(x, u, t, robot):
+    if robot: # robot1
+        ee_pos = forward_kinematics(x)
+    else:
+        ee_pos = forward_kinematics(x) + np.reshape(np.array(robot2_base) - np.array(robot1_base),(3,1))
+    #control_weight = 0.0001
     internal_cost = ca.norm_2(ee_pos - b(t)[0]) ** 2 # + control_weight * ca.norm_2(u) ** 2
+    return internal_cost
+
+def L_throw(x, u, t, robot):
+    ee_pos = forward_kinematics(x) + robot2_base if not robot else 0
+    ee_vel = jacobian(x)@u
+    
+    internal_cost = ca.norm_2((ee_pos - throw_pos))**2 + 1/ca.norm_2((ee_pos - throw_pos))**2 * ca.norm_2(ee_vel - throw_vel) **2 
     return internal_cost
 
 if __name__ == '__main__':

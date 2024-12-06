@@ -169,6 +169,9 @@ def attempt_catch(robot, ball):
         catch_constraint = p.createConstraint(robot, end_effector_link_idx, ball, -1, p.JOINT_FIXED, [0, 0, 0], [0, 0, 0], [0, 0, 0])
         has_ball = True
         print(f"Ball caught! at pos: {ball_pos}, ee_pos : {ee_pos}")
+        return (ball_pos, ball_vel)
+    
+    return None, None
 
 
 def release_ball():
@@ -243,29 +246,33 @@ if __name__ == '__main__':
     set_joint_angles(robot2, [np.pi, 0, 0])
 
     # TODO: Your code here
-    
-    #locations = np.array([[0.2,0.2,0.2],[0.1,0.2,0.2],[0.1,-0.2,0.2],[0.2,-0.2,0.2],[0.2,0.2,0.2]])
-    
-    # for location in locations:
-    #     p.stepSimulation()
 
     # hold Ctrl and use the mouse to rotate, pan, or zoom
     last_q = np.zeros(3)
     last_qdot = np.zeros(3)
     dt = 1. / 240.
-    optimal_states, optimal_controls = nlp([0, 0, 0], np.zeros(3), dt, T=1.0)
+    is_robot1 = True
+    is_robot2 = False
+
+    optimal_states, optimal_controls = nlp(is_robot1,[0, 0, 0], np.zeros(3), dt, T=1.0)
+    did_calc_throw = False
+    waited = False
+    catch_time = None
     # print(p.getPhysicsEngineParameters()['fixedTimeStep'])
     for step in range(10000):
         q1 = get_joint_angles(robot1)
         q2 = get_joint_angles(robot2)
         # ctrl_idx = _ // int(p.getPhysicsEngineParameters()['fixedTimeStep'] / dt)
         # print(f"ctrl_idx: {ctrl_idx}")
-        if step < len(optimal_controls):
+        if step < len(optimal_controls) and not has_ball:
             # set_robot_angles(robot1, optimal_states[step])
             # set_joint_vels(robot1, optimal_controls[step])
             apply_joint_vels(robot1, optimal_controls[step])
 
 
+        if step > len(optimal_controls):
+            waited=True
+            
 
         if do_ball_grav:
             pt, vt = get_ball_trajectory()
@@ -282,7 +289,25 @@ if __name__ == '__main__':
         # last_q = res[:3]
         # last_qdot = res[3:]
 
-        attempt_catch(robot1, ball)
+        if not has_ball:
+            (throw_pos, throw_vel) = attempt_catch(robot1, ball)
+            catch_time = dt*step
+        
+        if has_ball and waited:
+            if not did_calc_throw:
+                throw_step = step
+                q1 = get_joint_angles(robot1)
+                q2 = get_joint_angles(robot2)
+                q1dot = get_joint_velocities(robot1)
+                q2dot = get_joint_velocities(robot2)
+                optimal_states, optimal_controls = nlp(is_robot1, q1, q1dot, dt, T=1.0,catch_time=catch_time,throw_velocity=-throw_vel,throw_position=throw_pos)
+                did_calc_throw = True
+                
+            apply_joint_vels(robot1, optimal_controls[step-throw_step])
+
+            
+        
+        
         p.stepSimulation()
         time.sleep(1./240.)
 
