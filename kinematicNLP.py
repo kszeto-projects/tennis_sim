@@ -3,8 +3,9 @@ import casadi as ca
 import numpy as np
 
 from dynamics import D, C, g, forward_kinematics, g_casadi
+from config import grav, ball_pos, ball_vel, robot1_base, robot2_base
 
-def nlp(q, dt, T=1.0):
+def nlp(q, qdot_initial, dt, T=1.0):
     m = 3
     n = 3
 
@@ -22,17 +23,24 @@ def nlp(q, dt, T=1.0):
         x_next = X[:,k] + U[:,k] * dt
         cost += L(X[:,k], U[:,k], k * dt)
         constraints.append(X[:,k+1] - x_next)
-
+        
+     #add acceleration_constraints
+    constraints.append((U[:,0] - qdot_initial))
+    for k in range(N-1):
+        constraints.append((U[:,k+1] - U[:,k])/dt)
     constraints = ca.vertcat(*constraints).reshape((-1,1))
 
     lbg = np.zeros(constraints.shape)
     ubg = np.zeros(constraints.shape)
+    max_joint_accel = 10000
+    lbg[-m*N:] = -max_joint_accel
+    ubg[-m*N:] = max_joint_accel
 
     lbx = -np.inf * np.ones((n * (N + 1) + m * N, 1))
     ubx = np.inf * np.ones((n * (N + 1) + m * N, 1))
-    max_join_vel = 1000
-    ubx[-m * N:] = max_join_vel
-    lbx[-m * N:] = -max_join_vel
+    max_joint_vel = 100_000
+    ubx[-m * N:] = max_joint_vel
+    lbx[-m * N:] = -max_joint_vel
 
     #stack x and u into a single vector
     # xs, us = [], []
@@ -54,24 +62,21 @@ def nlp(q, dt, T=1.0):
     #     }
     # }
     solver = ca.nlpsol('solver', 'ipopt', nlp_prob)
-    print('solver:', solver)
+    # print('solver:', solver)
     x0_guess = np.zeros((n * (N + 1) + m * N, 1))
     x0_guess[0:n * (N + 1)] = np.tile(q, N + 1).reshape(-1,1)
     x0_guess[n * (N + 1):] = np.tile(np.array([0.0, 0.01, 0.01]), N).flatten()[np.newaxis].T
     sol = solver(x0=x0_guess, lbx=lbx, ubx=ubx, lbg=lbg, ubg=ubg)
-    print(sol['x'])
+    # print(sol['x'])
     final_cost = sol['f']
     print(f'Final cost: {final_cost}')
     optimal_states = np.array(sol['x'][0:n * (N + 1)].reshape((n, N + 1))).T
     optimal_controls = np.array(sol['x'][n * (N + 1):].reshape((m, N))).T
-    print('optimal states:', optimal_states)
-    print('optimal controls:', optimal_controls)
+    # print('optimal states:', optimal_states)
+    # print('optimal controls:', optimal_controls)
     return optimal_states, optimal_controls
 
 def b(t):
-    grav = np.array([0, 0, -9.81])
-    ball_pos = np.array([0.8, 0, 0.2])
-    ball_vel = np.array([-1, 0, 3])
 
     def vel(t):
         return ball_vel + grav * t
@@ -82,9 +87,11 @@ def b(t):
     return pos(t), vel(t)
 
 def L(x, u, t):
-    ee_pos = forward_kinematics(x[0:3])
+    #ee_pos = forward_kinematics(x[0:3]) for robot1
+    # for robot2:
+    ee_pos = forward_kinematics(x[0:3]) + ([robot2_base - robot1_base])
     control_weight = 0.0001
-    internal_cost = ca.norm_2(ee_pos - b(t)[0]) ** 2 + control_weight * ca.norm_2(u) ** 2
+    internal_cost = ca.norm_2(ee_pos - b(t)[0]) ** 2 # + control_weight * ca.norm_2(u) ** 2
     return internal_cost
 
 if __name__ == '__main__':

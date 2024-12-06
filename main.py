@@ -7,6 +7,7 @@ from numpy import sin, cos, pi
 import os
 import pdb
 from kinematicNLP import nlp
+from config import grav, ball_pos, ball_vel, robot1_base,robot2_base
 
 
 movable_joints = None
@@ -122,6 +123,7 @@ def set_ball_velocity(vel):
 def get_ball_state():
     #return pos, vel
     return np.array(p.getBasePositionAndOrientation(ball)[0]), np.array(p.getBaseVelocity(ball)[0])
+
 def get_end_effector_vel(robot, end_effector_link_idx):
     ee_vel = p.getLinkState(
         robot, end_effector_link_idx, computeLinkVelocity=1)[6]
@@ -132,7 +134,7 @@ def get_ball_trajectory():
     #get end effector position + velocity
     ball_pos, ball_vel = get_ball_state()
     # we can describe the velocity of the ball as a linear function of time
-    grav = np.array([0, 0, -9.81])
+    #grav = np.array([0, 0, -9.81])
     def vel(t):
         return ball_vel + grav*t
 
@@ -201,11 +203,11 @@ if __name__ == '__main__':
     p.setAdditionalSearchPath(pybullet_data.getDataPath())
     p.setGravity(0., 0., -9.81)
     #plane = p.loadURDF('plane.urdf')
-    robot1 = p.loadURDF('three_link.urdf', useFixedBase=True)
-    robot2 = p.loadURDF('three_link.urdf', basePosition=(2, 0, 0), useFixedBase=True)
+    robot1 = p.loadURDF('three_link.urdf', basePosition=robot1_base, useFixedBase=True)
+    robot2 = p.loadURDF('three_link.urdf', basePosition=robot2_base, useFixedBase=True)
     ball = p.loadURDF(generate_sphere(ball_rad, mass=ball_mass))
-    set_ball_pos([0.8, 0, 0.2])
-    set_ball_velocity([-1, 0, 3])
+    set_ball_pos(ball_pos)
+    set_ball_velocity(ball_vel)
 
     # get three movable joints and the end-effector link's index
     num_joints = p.getNumJoints(robot1)
@@ -225,6 +227,8 @@ if __name__ == '__main__':
             
     for joint_index in movable_joints:
         p.changeDynamics(robot1, joint_index, linearDamping=0, angularDamping=0)
+        
+    p.changeDynamics(ball, -1, linearDamping=0, angularDamping=0)
 
     # Set joint control mode to make the joints free to move (no motor control)
     for joint_index in movable_joints:
@@ -240,7 +244,7 @@ if __name__ == '__main__':
 
     # TODO: Your code here
     
-    locations = np.array([[0.2,0.2,0.2],[0.1,0.2,0.2],[0.1,-0.2,0.2],[0.2,-0.2,0.2],[0.2,0.2,0.2]])
+    #locations = np.array([[0.2,0.2,0.2],[0.1,0.2,0.2],[0.1,-0.2,0.2],[0.2,-0.2,0.2],[0.2,0.2,0.2]])
     
     # for location in locations:
     #     p.stepSimulation()
@@ -249,7 +253,7 @@ if __name__ == '__main__':
     last_q = np.zeros(3)
     last_qdot = np.zeros(3)
     dt = 1. / 240.
-    optimal_states, optimal_controls = nlp([0, 0, 0],  dt, T=1.0)
+    optimal_states, optimal_controls = nlp([0, 0, 0], np.zeros(3), dt, T=1.0)
     # print(p.getPhysicsEngineParameters()['fixedTimeStep'])
     for step in range(10000):
         q1 = get_joint_angles(robot1)
@@ -280,6 +284,6 @@ if __name__ == '__main__':
 
         attempt_catch(robot1, ball)
         p.stepSimulation()
-        time.sleep(10./240.)
+        time.sleep(1./240.)
 
     p.disconnect()
