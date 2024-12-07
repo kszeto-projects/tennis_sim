@@ -1,6 +1,6 @@
 import numpy as np
 
-grav = np.array([0, 0, -9.81])
+GRAV = np.array([0, 0, -9.81])
 # initial ball pos and velocity (going to robot1)
 INIT_BALL_POS = np.array([1.8, 0, 0.2])
 INIT_BALL_VEL = np.array([-2.2, 0, 3.5])
@@ -10,6 +10,6 @@ INIT_BALL_VEL = np.array([-2.2, 0, 3.5])
 
 
 # keep robot frames aligned for simplicity and to reuse forward kin
-robot1_base = (0,0,0)
-robot2_base = (2,0,0)
+ROBOT1_BASE = (0,0,0)
+ROBOT2_BASE = (2,0,0)
 

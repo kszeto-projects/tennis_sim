@@ -7,7 +7,7 @@ from numpy import sin, cos, pi
 import os
 import pdb
 from kinematicNLP import nlp
-from config import grav, INIT_BALL_POS, INIT_BALL_VEL, robot1_base,robot2_base
+from config import GRAV, INIT_BALL_POS, INIT_BALL_VEL, ROBOT1_BASE, ROBOT2_BASE
 
 
 movable_joints = None
@@ -136,10 +136,10 @@ def get_ball_trajectory():
     # we can describe the velocity of the ball as a linear function of time
     #grav = np.array([0, 0, -9.81])
     def vel(t):
-        return ball_vel + grav*t
+        return ball_vel + GRAV*t
 
     def pos(t):
-        return ball_pos + ball_vel*t + 0.5*grav*t**2
+        return ball_pos + ball_vel*t + 0.5*GRAV*t**2
 
     vt = vel
     pt = pos
@@ -206,8 +206,8 @@ if __name__ == '__main__':
     p.setAdditionalSearchPath(pybullet_data.getDataPath())
     p.setGravity(0., 0., -9.81)
     #plane = p.loadURDF('plane.urdf')
-    robot1 = p.loadURDF('three_link.urdf', basePosition=robot1_base, useFixedBase=True)
-    robot2 = p.loadURDF('three_link.urdf', basePosition=robot2_base, useFixedBase=True)
+    robot1 = p.loadURDF('three_link.urdf', basePosition=ROBOT1_BASE, useFixedBase=True)
+    robot2 = p.loadURDF('three_link.urdf', basePosition=ROBOT2_BASE, useFixedBase=True)
     ball = p.loadURDF(generate_sphere(ball_rad, mass=ball_mass))
     set_ball_pos(INIT_BALL_POS)
     set_ball_velocity(INIT_BALL_VEL)
