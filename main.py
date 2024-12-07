@@ -254,7 +254,7 @@ if __name__ == '__main__':
     is_robot1 = True
     is_robot2 = False
 
-    optimal_states, optimal_controls = nlp(is_robot1,[0, 0, 0], np.zeros(3), dt, T=1.0)
+    optimal_states, optimal_controls = nlp(is_robot1,1, [0, 0, 0], np.zeros(3), dt, T=1.0)
     did_calc_throw = False
     waited = False
     catch_time = None
@@ -291,9 +291,9 @@ if __name__ == '__main__':
 
         if not has_ball and not waited:
             (throw_pos, caught_ball_vel) = attempt_catch(robot1, ball)
-            throw_vel = -1*caught_ball_vel if caught_ball_vel is not None else None
-            catch_time = dt*step
-        
+            # throw_vel = -1*caught_ball_vel if caught_ball_vel is not None else None
+            # catch_time = dt*step
+
         if has_ball and waited:
             if not did_calc_throw:
                 throw_step = step
@@ -301,18 +301,33 @@ if __name__ == '__main__':
                 q2 = get_joint_angles(robot2)
                 q1dot = get_joint_velocities(robot1)
                 q2dot = get_joint_velocities(robot2)
-                print(throw_vel)
-                print(throw_pos)
-                # optimal_states, optimal_controls = nlp(is_robot1, q1, q1dot, dt, T=.25, catch_time=catch_time,throw_velocity=throw_vel,throw_position=throw_pos)
+                optimal_states, optimal_controls = nlp(is_robot1, 0, q1, q1dot, dt, T=.25)  # catch = 1, throw = 0
+                # optimal_states, optimal_controls = nlp(is_robot1, q1, q1dot, dt, T=.25, catch_time=catch_time,
+                #                                        throw_velocity=throw_vel, throw_position=throw_pos)
                 did_calc_throw = True
 
             if step - throw_step < len(optimal_controls):
-                apply_joint_vels(robot1, -optimal_controls[-(step-throw_step)])
-            #check if velocity and position are close enough to the desired release point
-            ee_vel = get_end_effector_vel(robot1, end_effector_link_idx)
-            if (np.linalg.norm(ee_vel - get_ball_trajectory()[0](np.arange(len(optimal_controls))[np.newaxis].T*dt), axis=1) < .075).any(): # and np.linalg.norm(get_end_effector_vel(robot1, end_effector_link_idx) - throw_vel) < 0.1:
-                release_ball()
-                toggle_ball_grav()
+                apply_joint_vels(robot1, optimal_controls[step - throw_step])
+        
+        # if has_ball and waited:
+        #     if not did_calc_throw:
+        #         throw_step = step
+        #         q1 = get_joint_angles(robot1)
+        #         q2 = get_joint_angles(robot2)
+        #         q1dot = get_joint_velocities(robot1)
+        #         q2dot = get_joint_velocities(robot2)
+        #         print(throw_vel)
+        #         print(throw_pos)
+        #         # optimal_states, optimal_controls = nlp(is_robot1, q1, q1dot, dt, T=.25, catch_time=catch_time,throw_velocity=throw_vel,throw_position=throw_pos)
+        #         did_calc_throw = True
+        #
+        #     if step - throw_step < len(optimal_controls):
+        #         apply_joint_vels(robot1, -optimal_controls[-(step-throw_step)])
+        #     #check if velocity and position are close enough to the desired release point
+        #     ee_vel = get_end_effector_vel(robot1, end_effector_link_idx)
+        #     if (np.linalg.norm(ee_vel - get_ball_trajectory()[0](np.arange(len(optimal_controls))[np.newaxis].T*dt), axis=1) < .075).any(): # and np.linalg.norm(get_end_effector_vel(robot1, end_effector_link_idx) - throw_vel) < 0.1:
+        #         release_ball()
+        #         toggle_ball_grav()
             
         
         
