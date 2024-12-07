@@ -7,7 +7,7 @@ from numpy import sin, cos, pi
 import os
 import pdb
 from kinematicNLP import nlp
-from config import grav, ball_pos, ball_vel, robot1_base,robot2_base
+from config import grav, INIT_BALL_POS, INIT_BALL_VEL, robot1_base,robot2_base
 
 
 movable_joints = None
@@ -162,14 +162,14 @@ def attempt_catch(robot, ball):
     ee_pos = get_end_effector_pos(robot, end_effector_link_idx)
     ee_vel = get_end_effector_vel(robot, end_effector_link_idx)
     #get ball position + velocity
-    ball_pos, ball_vel = get_ball_state()
+    cur_ball_pos, cur_ball_vel = get_ball_state()
 
     #if ball is close enough to end effector, and moving at a similar speed, apply a constraint to "catch" the ball
-    if np.linalg.norm(ee_pos - ball_pos) < 0.025: # and np.linalg.norm(ee_vel - ball_vel) < 0.1:
+    if np.linalg.norm(ee_pos - cur_ball_pos) < 0.025: # and np.linalg.norm(ee_vel - cur_ball_vel) < 0.1:
         catch_constraint = p.createConstraint(robot, end_effector_link_idx, ball, -1, p.JOINT_FIXED, [0, 0, 0], [0, 0, 0], [0, 0, 0])
         has_ball = True
-        print(f"Ball caught! at pos: {ball_pos}, ee_pos : {ee_pos}")
-        return (ball_pos, ball_vel)
+        print(f"Ball caught! at pos: {cur_ball_pos}, ee_pos : {ee_pos}")
+        return (cur_ball_pos, cur_ball_vel)
     
     return None, None
 
@@ -209,8 +209,8 @@ if __name__ == '__main__':
     robot1 = p.loadURDF('three_link.urdf', basePosition=robot1_base, useFixedBase=True)
     robot2 = p.loadURDF('three_link.urdf', basePosition=robot2_base, useFixedBase=True)
     ball = p.loadURDF(generate_sphere(ball_rad, mass=ball_mass))
-    set_ball_pos(ball_pos)
-    set_ball_velocity(ball_vel)
+    set_ball_pos(INIT_BALL_POS)
+    set_ball_velocity(INIT_BALL_VEL)
 
     # get three movable joints and the end-effector link's index
     num_joints = p.getNumJoints(robot1)
@@ -264,7 +264,7 @@ if __name__ == '__main__':
         q2 = get_joint_angles(robot2)
         # ctrl_idx = _ // int(p.getPhysicsEngineParameters()['fixedTimeStep'] / dt)
         # print(f"ctrl_idx: {ctrl_idx}")
-        if step < len(optimal_controls) and not has_ball:
+        if step < len(optimal_controls):
             # set_robot_angles(robot1, optimal_states[step])
             # set_joint_vels(robot1, optimal_controls[step])
             apply_joint_vels(robot1, optimal_controls[step])
@@ -289,8 +289,9 @@ if __name__ == '__main__':
         # last_q = res[:3]
         # last_qdot = res[3:]
 
-        if not has_ball:
-            (throw_pos, throw_vel) = attempt_catch(robot1, ball)
+        if not has_ball and not waited:
+            (throw_pos, caught_ball_vel) = attempt_catch(robot1, ball)
+            throw_vel = -1*caught_ball_vel if caught_ball_vel is not None else None
             catch_time = dt*step
         
         if has_ball and waited:
@@ -300,11 +301,18 @@ if __name__ == '__main__':
                 q2 = get_joint_angles(robot2)
                 q1dot = get_joint_velocities(robot1)
                 q2dot = get_joint_velocities(robot2)
-                optimal_states, optimal_controls = nlp(is_robot1, q1, q1dot, dt, T=1.0,catch_time=catch_time,throw_velocity=-throw_vel,throw_position=throw_pos)
+                print(throw_vel)
+                print(throw_pos)
+                # optimal_states, optimal_controls = nlp(is_robot1, q1, q1dot, dt, T=.25, catch_time=catch_time,throw_velocity=throw_vel,throw_position=throw_pos)
                 did_calc_throw = True
-                
-            apply_joint_vels(robot1, optimal_controls[step-throw_step])
 
+            if step - throw_step < len(optimal_controls):
+                apply_joint_vels(robot1, -optimal_controls[-(step-throw_step)])
+            #check if velocity and position are close enough to the desired release point
+            ee_vel = get_end_effector_vel(robot1, end_effector_link_idx)
+            if (np.linalg.norm(ee_vel - get_ball_trajectory()[0](np.arange(len(optimal_controls))[np.newaxis].T*dt), axis=1) < .075).any(): # and np.linalg.norm(get_end_effector_vel(robot1, end_effector_link_idx) - throw_vel) < 0.1:
+                release_ball()
+                toggle_ball_grav()
             
         
         

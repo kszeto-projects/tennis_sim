@@ -3,7 +3,7 @@ import casadi as ca
 import numpy as np
 
 from dynamics import D, C, g, forward_kinematics, g_casadi, jacobian
-from config import grav, ball_pos, ball_vel, robot1_base, robot2_base
+from config import grav, INIT_BALL_POS, INIT_BALL_VEL, robot1_base, robot2_base
 throw_vel = None
 throw_pos = None
 t_catch = None
@@ -65,7 +65,7 @@ def nlp(robot, q, qdot_initial, dt, T=1.0, throw_velocity=None, throw_position=N
     }
     opts = {
         'ipopt': {
-            # 'print_level': 12,
+            'print_level': 0,
             'max_iter': 500,
             # 'tol': 1e-6,
         }
@@ -88,10 +88,10 @@ def nlp(robot, q, qdot_initial, dt, T=1.0, throw_velocity=None, throw_position=N
 def b(t):
 
     def vel(t):
-        return ball_vel + grav * t
+        return INIT_BALL_VEL + grav * t
 
     def pos(t):
-        return ball_pos + ball_vel * t + 0.5 * grav * t ** 2
+        return INIT_BALL_POS + INIT_BALL_VEL * t + 0.5 * grav * t ** 2
 
     return pos(t), vel(t)
 
@@ -107,8 +107,9 @@ def L(x, u, t, robot):
 def L_throw(x, u, t, robot):
     ee_pos = forward_kinematics(x) + robot2_base if not robot else 0
     ee_vel = jacobian(x)@u
-    
-    internal_cost = ca.norm_2((ee_pos - throw_pos))**2 + 1/ca.norm_2((ee_pos - throw_pos))**2 * ca.norm_2(ee_vel - throw_vel) **2 
+
+    pos_cost = ca.norm_2((ee_pos - throw_pos))**2
+    internal_cost =  ca.norm_2(ee_vel - throw_vel) **2
     return internal_cost
 
 if __name__ == '__main__':
