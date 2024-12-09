@@ -309,6 +309,14 @@ if __name__ == '__main__':
             if step - throw_step < len(optimal_controls):
                 apply_joint_vels(robot1, optimal_controls[step - throw_step])
         
+            pt = get_ball_trajectory()[0]
+            # plot_ball_trajectory(pt)
+            ee2 = get_end_effector_pos(robot2, end_effector_link_idx-1)
+            ts = np.linspace(0, 1, 300).reshape(-1,1)
+            points = pt(ts)
+            if(np.min(np.linalg.norm((points - ee2),axis=1)) < 0.15):
+                release_ball()
+                toggle_ball_grav()
         # if has_ball and waited:
         #     if not did_calc_throw:
         #         throw_step = step
@@ -332,6 +340,7 @@ if __name__ == '__main__':
         
         
         p.stepSimulation()
+        # if(waited):
         time.sleep(1./240.)
 
     p.disconnect()

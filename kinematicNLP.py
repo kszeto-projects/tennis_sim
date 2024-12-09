@@ -107,7 +107,7 @@ def throw(t): # calculate reverse trajectory starting at z = -0.2
         return INIT_THROW_VEL + GRAV * t
 
     def t_pos(t):
-        return INIT_BALL_POS + INIT_BALL_VEL * t + 0.5 * GRAV * t **2
+        return INIT_THROW_POS + INIT_THROW_VEL * t + 0.5 * GRAV * t **2
 
     return t_pos(t), t_vel(t)
 
