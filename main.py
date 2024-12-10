@@ -6,10 +6,10 @@ import dynamics
 from numpy import sin, cos, pi
 import os
 import pdb
-from kinematicNLP import nlp
+from kinematicNLP import nlp, nlp_throw
 from config import GRAV, INIT_BALL_POS, INIT_BALL_VEL, ROBOT1_BASE, ROBOT2_BASE
 
-
+plot_id = None
 movable_joints = None
 ball_mass = 0.025
 ball_rad = 0.025
@@ -20,7 +20,10 @@ has_ball = False
 ball = None
 robot1 = None
 robot2 = None
-
+did_calc_throw = False
+did_calc_catch = False
+throw_controls = None
+catch_controls = None
 def grav_comp(q, robot):
     G = dynamics.g(q)
     if has_ball:
@@ -72,15 +75,15 @@ def generate_sphere(radius, mass=1.0):
 
 def get_joint_angles(robot):
     angles = []
-    for i in range(len(movable_joints)):
-        angles.append(p.getJointState(robot, movable_joints[i])[0])
+    for i in range(len(movable_joints[robot])):
+        angles.append(p.getJointState(robot, movable_joints[robot][i])[0])
     return np.array(angles)
 
 
 def get_joint_velocities(robot):
     velocities = []
-    for i in range(len(movable_joints)):
-        velocities.append(p.getJointState(robot, movable_joints[i])[1])
+    for i in range(len(movable_joints[robot])):
+        velocities.append(p.getJointState(robot, movable_joints[robot][i])[1])
     return np.array(velocities)
 
 
@@ -90,28 +93,28 @@ def get_end_effector_pos(robot, end_effector_link_idx):
     return np.array(ee_pose[0])
 
 def apply_torques(robot, torques):
-    for i, joint_index in enumerate(movable_joints):
+    for i, joint_index in enumerate(movable_joints[robot]):
         p.setJointMotorControl2(bodyIndex=robot, jointIndex=joint_index,
                                 controlMode=p.TORQUE_CONTROL,
                                 force=torques[i])
 
 def set_joint_angles(robot, joint_angles):
-    for i, joint_index in enumerate(movable_joints):
+    for i, joint_index in enumerate(movable_joints[robot]):
         p.resetJointState(robot, joint_index, joint_angles[i], 0)
 
 def set_joint_vels(robot, joint_velocities):
     #set the joint velocity using resetJointState
-    for i, joint_index in enumerate(movable_joints):
+    for i, joint_index in enumerate(movable_joints[robot]):
         p.resetJointState(robot, joint_index, get_joint_angles(robot)[i], joint_velocities[i])
 
 
 def apply_joint_vels(robot, joint_velocities):
-    for i, joint_index in enumerate(movable_joints):
+    for i, joint_index in enumerate(movable_joints[robot]):
         p.setJointMotorControl2(bodyIndex=robot, jointIndex=joint_index,
                                 controlMode=p.VELOCITY_CONTROL,
                                 targetVelocity=joint_velocities[i])
 def set_robot_angles(robot, q):
-    for i, joint_index in enumerate(movable_joints):
+    for i, joint_index in enumerate(movable_joints[robot]):
         p.resetJointState(robot, joint_index, q[i], 0)
 
 def set_ball_pos(pos):
@@ -149,10 +152,15 @@ def get_ball_trajectory():
     return pt, vt
 
 def plot_ball_trajectory(pt, num_points = 50):
+    global plot_id
     #plot the trajectory of the ball
     ts = np.linspace(0, 1, num_points).reshape(-1,1)
     points = pt(ts)
-    p.addUserDebugPoints(points, 255*np.ones_like(points), pointSize=5)
+    if plot_id is not None:
+        plot_id = p.addUserDebugPoints(points, 255*np.ones_like(points), pointSize=5, replaceItemUniqueId=plot_id)
+    else:
+        plot_id = p.addUserDebugPoints(points, 255*np.ones_like(points), pointSize=5)
+    return plot_id
 
 def attempt_catch(robot, ball):
     global catch_constraint, has_ball
@@ -165,7 +173,7 @@ def attempt_catch(robot, ball):
     cur_ball_pos, cur_ball_vel = get_ball_state()
 
     #if ball is close enough to end effector, and moving at a similar speed, apply a constraint to "catch" the ball
-    if np.linalg.norm(ee_pos - cur_ball_pos) < 0.025: # and np.linalg.norm(ee_vel - cur_ball_vel) < 0.1:
+    if np.linalg.norm(ee_pos - cur_ball_pos) < 0.05: # and np.linalg.norm(ee_vel - cur_ball_vel) < 0.1:
         catch_constraint = p.createConstraint(robot, end_effector_link_idx, ball, -1, p.JOINT_FIXED, [0, 0, 0], [0, 0, 0], [0, 0, 0])
         has_ball = True
         print(f"Ball caught! at pos: {cur_ball_pos}, ee_pos : {ee_pos}")
@@ -200,8 +208,58 @@ def quaternion_to_rotation_matrix(quaternion):
     
     return R
 
+def catch_phase(robot, step):
+    global did_calc_catch, catch_controls
+    if not did_calc_catch:
+        print("Calculating catch for robot ", robot)
+        q_robot = get_joint_angles(robot)
+        qdot_robot = get_joint_velocities(robot)
+        ball_pos, ball_vel = get_ball_state()
+        catch_states, catch_controls = nlp(robot==robot1, q_robot, qdot_robot, dt, T=1.0, init_ball_pos=ball_pos, init_ball_vel=ball_vel)
+        did_calc_catch = True
+
+    if step < len(catch_controls):
+        apply_joint_vels(robot, catch_controls[step])
+        apply_joint_vels(robot2 if robot == robot1 else robot1, np.zeros(3))
+    if not has_ball:
+        attempt_catch(robot, ball)
+
+    if has_ball:
+        did_calc_catch = False
+        apply_joint_vels(robot, np.zeros(3))
+
+        return True
+
+    return False
+
+def throw_phase(robot, step):
+    global did_calc_throw
+    global throw_controls
+
+    if not did_calc_throw:
+        throwing_robot = robot
+        catching_robot = robot2 if robot == robot1 else robot1
+        throwing_q = get_joint_angles(throwing_robot)
+        catching_q = get_joint_angles(catching_robot)
+        throwing_qdot = get_joint_velocities(throwing_robot)
+        catching_qdot = get_joint_velocities(catching_robot)
+        goal_pt = get_end_effector_pos(catching_robot, end_effector_link_idx)
+        throw_states, throw_controls = nlp_throw(throwing_robot == robot1, throwing_q, throwing_qdot, goal_pt, dt, T=.75)
+        print("goal:", goal_pt)
+        did_calc_throw = True
+    if step < len(throw_controls):
+        apply_joint_vels(robot, throw_controls[step])
+        apply_joint_vels(robot2 if robot == robot1 else robot1, np.zeros(3))
+    if has_ball and step == len(throw_controls):
+        release_ball()
+        plot_ball_trajectory(get_ball_trajectory()[0])
+        apply_joint_vels(robot, np.zeros(3))
+        did_calc_throw = False
+        return True
+    return False
 ## Main code
 if __name__ == '__main__': 
+    # physics_client = p.connect(p.GUI, options=f"--mp4=throw_catch.mp4")
     physics_client = p.connect(p.GUI)
     p.setAdditionalSearchPath(pybullet_data.getDataPath())
     p.setGravity(0., 0., -9.81)
@@ -213,110 +271,66 @@ if __name__ == '__main__':
     set_ball_velocity(INIT_BALL_VEL)
 
     # get three movable joints and the end-effector link's index
-    num_joints = p.getNumJoints(robot1)
     movable_joints = []
     end_effector_link_idx = None
-    for idx in range(num_joints):
-        info = p.getJointInfo(robot1, idx)
-        print('Joint {}: {}'.format(idx, info))
+    for robot_num, robot in enumerate([robot1, robot2]):
+        movable_joints.append([])
+        num_joints = p.getNumJoints(robot)
+        for idx in range(num_joints):
+            info = p.getJointInfo(robot, idx)
+            print('Joint {}: {}'.format(idx, info))
 
-        joint_type = info[2]
-        if joint_type != p.JOINT_FIXED:
-            movable_joints.append(idx)
+            joint_type = info[2]
+            if joint_type != p.JOINT_FIXED:
+                movable_joints[robot_num].append(idx)
 
-        link_name = info[12].decode('utf-8')
-        if link_name == 'end_effector':
-            end_effector_link_idx = idx
-            
-    for joint_index in movable_joints:
-        p.changeDynamics(robot1, joint_index, linearDamping=0, angularDamping=0)
+            link_name = info[12].decode('utf-8')
+            if link_name == 'end_effector':
+                end_effector_link_idx = idx
+
+        for joint_index in movable_joints[robot_num]:
+            p.changeDynamics(robot, joint_index, linearDamping=0, angularDamping=0)
         
     p.changeDynamics(ball, -1, linearDamping=0, angularDamping=0)
 
     # Set joint control mode to make the joints free to move (no motor control)
-    for joint_index in movable_joints:
-        p.setJointMotorControl2(bodyIndex=robot1,
-                                jointIndex=joint_index,
-                                controlMode=p.VELOCITY_CONTROL,
-                                force=0)  # Ensure no motor is controlling the joint
-        
+    for robot_num, robot in enumerate([robot1, robot2]):
+        for joint_index in movable_joints[robot_num]:
+            p.setJointMotorControl2(bodyIndex=robot,
+                                    jointIndex=joint_index,
+                                    controlMode=p.VELOCITY_CONTROL,
+                                    force=0)  # Ensure no motor is controlling the joint
+
 
     # Set the initial joint angles
     set_joint_angles(robot1, [0, 0, 0])
     set_joint_angles(robot2, [np.pi, 0, 0])
-
-    # TODO: Your code here
-
-    # hold Ctrl and use the mouse to rotate, pan, or zoom
-    last_q = np.zeros(3)
-    last_qdot = np.zeros(3)
+    set_joint_vels(robot1, [0, 0, 0])
+    set_joint_vels(robot2, [0, 0, 0])
     dt = 1. / 240.
-    is_robot1 = True
-    is_robot2 = False
-
-    optimal_states, optimal_controls = nlp(is_robot1,[0, 0, 0], np.zeros(3), dt, T=1.0)
-    did_calc_throw = False
-    waited = False
-    catch_time = None
-    # print(p.getPhysicsEngineParameters()['fixedTimeStep'])
+    catching_robot = robot1
+    throwing_robot = robot1
+    state = "C"
+    catch_step = 0
+    throw_step = 0
+    plot_ball_trajectory(get_ball_trajectory()[0])
+    throw_catch_count = 0
     for step in range(10000):
-        q1 = get_joint_angles(robot1)
-        q2 = get_joint_angles(robot2)
-        # ctrl_idx = _ // int(p.getPhysicsEngineParameters()['fixedTimeStep'] / dt)
-        # print(f"ctrl_idx: {ctrl_idx}")
-        if step < len(optimal_controls):
-            # set_robot_angles(robot1, optimal_states[step])
-            # set_joint_vels(robot1, optimal_controls[step])
-            apply_joint_vels(robot1, optimal_controls[step])
 
+        if state == "C" and catch_phase(catching_robot, step - catch_step):
+            throw_step = step
+            state = "T"
+            throwing_robot = catching_robot
+        if state == "T" and throw_phase(throwing_robot, step-throw_step):
+            state = "C"
+            catching_robot = robot2 if throwing_robot == robot1 else robot1
+            catch_step = step
+            throw_catch_count += 1
 
-        if step > len(optimal_controls):
-            waited=True
-            
-
-        if do_ball_grav:
-            pt, vt = get_ball_trajectory()
-            plot_ball_trajectory(pt)
-            toggle_ball_grav()
-
-        # if not do_ball_grav:
-        #     p.applyExternalForce(ball, -1, [0, 0, ball_mass * 9.81], [0, 0, 0], p.LINK_FRAME)
-        # print("robot1_ee_pos: " + str(get_end_effector_pos(robot1, end_effector_link_idx)))
-        # print("robot2_ee_pos: " + str(get_end_effector_pos(robot2, end_effector_link_idx)))
-        # print("q1, q1dot = " + str(q1), str(get_joint_velocities(robot1)))
-        # res = test_dynamics(q1, get_joint_velocities(robot1), grav_comp(q1, robot1) + .0001, dt)
-        # print("diff: " + str(q1 - last_q) + " " + str(get_joint_velocities(robot1) - last_qdot))
-        # last_q = res[:3]
-        # last_qdot = res[3:]
-
-        if not has_ball and not waited:
-            (throw_pos, caught_ball_vel) = attempt_catch(robot1, ball)
-            throw_vel = -1*caught_ball_vel if caught_ball_vel is not None else None
-            catch_time = dt*step
-        
-        if has_ball and waited:
-            if not did_calc_throw:
-                throw_step = step
-                q1 = get_joint_angles(robot1)
-                q2 = get_joint_angles(robot2)
-                q1dot = get_joint_velocities(robot1)
-                q2dot = get_joint_velocities(robot2)
-                print(throw_vel)
-                print(throw_pos)
-                # optimal_states, optimal_controls = nlp(is_robot1, q1, q1dot, dt, T=.25, catch_time=catch_time,throw_velocity=throw_vel,throw_position=throw_pos)
-                did_calc_throw = True
-
-            if step - throw_step < len(optimal_controls):
-                apply_joint_vels(robot1, -optimal_controls[-(step-throw_step)])
-            #check if velocity and position are close enough to the desired release point
-            ee_vel = get_end_effector_vel(robot1, end_effector_link_idx)
-            if (np.linalg.norm(ee_vel - get_ball_trajectory()[0](np.arange(len(optimal_controls))[np.newaxis].T*dt), axis=1) < .075).any(): # and np.linalg.norm(get_end_effector_vel(robot1, end_effector_link_idx) - throw_vel) < 0.1:
-                release_ball()
-                toggle_ball_grav()
-            
-        
-        
+        if throw_catch_count > 5:
+            break
         p.stepSimulation()
         time.sleep(1./240.)
 
     p.disconnect()
+
