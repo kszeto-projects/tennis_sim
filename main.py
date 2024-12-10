@@ -75,15 +75,15 @@ def generate_sphere(radius, mass=1.0):
 
 def get_joint_angles(robot):
     angles = []
-    for i in range(len(movable_joints)):
-        angles.append(p.getJointState(robot, movable_joints[i])[0])
+    for i in range(len(movable_joints[robot])):
+        angles.append(p.getJointState(robot, movable_joints[robot][i])[0])
     return np.array(angles)
 
 
 def get_joint_velocities(robot):
     velocities = []
-    for i in range(len(movable_joints)):
-        velocities.append(p.getJointState(robot, movable_joints[i])[1])
+    for i in range(len(movable_joints[robot])):
+        velocities.append(p.getJointState(robot, movable_joints[robot][i])[1])
     return np.array(velocities)
 
 
@@ -93,28 +93,28 @@ def get_end_effector_pos(robot, end_effector_link_idx):
     return np.array(ee_pose[0])
 
 def apply_torques(robot, torques):
-    for i, joint_index in enumerate(movable_joints):
+    for i, joint_index in enumerate(movable_joints[robot]):
         p.setJointMotorControl2(bodyIndex=robot, jointIndex=joint_index,
                                 controlMode=p.TORQUE_CONTROL,
                                 force=torques[i])
 
 def set_joint_angles(robot, joint_angles):
-    for i, joint_index in enumerate(movable_joints):
+    for i, joint_index in enumerate(movable_joints[robot]):
         p.resetJointState(robot, joint_index, joint_angles[i], 0)
 
 def set_joint_vels(robot, joint_velocities):
     #set the joint velocity using resetJointState
-    for i, joint_index in enumerate(movable_joints):
+    for i, joint_index in enumerate(movable_joints[robot]):
         p.resetJointState(robot, joint_index, get_joint_angles(robot)[i], joint_velocities[i])
 
 
 def apply_joint_vels(robot, joint_velocities):
-    for i, joint_index in enumerate(movable_joints):
+    for i, joint_index in enumerate(movable_joints[robot]):
         p.setJointMotorControl2(bodyIndex=robot, jointIndex=joint_index,
                                 controlMode=p.VELOCITY_CONTROL,
                                 targetVelocity=joint_velocities[i])
 def set_robot_angles(robot, q):
-    for i, joint_index in enumerate(movable_joints):
+    for i, joint_index in enumerate(movable_joints[robot]):
         p.resetJointState(robot, joint_index, q[i], 0)
 
 def set_ball_pos(pos):
@@ -220,6 +220,7 @@ def catch_phase(robot, step):
 
     if step < len(catch_controls):
         apply_joint_vels(robot, catch_controls[step])
+        apply_joint_vels(robot2 if robot == robot1 else robot1, np.zeros(3))
     if not has_ball:
         attempt_catch(robot, ball)
 
@@ -242,12 +243,13 @@ def throw_phase(robot, step):
         catching_q = get_joint_angles(catching_robot)
         throwing_qdot = get_joint_velocities(throwing_robot)
         catching_qdot = get_joint_velocities(catching_robot)
-        goal_pt = get_end_effector_pos(catching_robot, end_effector_link_idx-2)
+        goal_pt = get_end_effector_pos(catching_robot, end_effector_link_idx)
         throw_states, throw_controls = nlp_throw(throwing_robot == robot1, throwing_q, throwing_qdot, goal_pt, dt, T=.75)
         print("goal:", goal_pt)
         did_calc_throw = True
     if step < len(throw_controls):
         apply_joint_vels(robot, throw_controls[step])
+        apply_joint_vels(robot2 if robot == robot1 else robot1, np.zeros(3))
     if has_ball and step == len(throw_controls):
         release_ball()
         plot_ball_trajectory(get_ball_trajectory()[0])
@@ -257,7 +259,8 @@ def throw_phase(robot, step):
     return False
 ## Main code
 if __name__ == '__main__': 
-    physics_client = p.connect(p.GUI, options=f"--mp4=throw_catch.mp4")
+    # physics_client = p.connect(p.GUI, options=f"--mp4=throw_catch.mp4")
+    physics_client = p.connect(p.GUI)
     p.setAdditionalSearchPath(pybullet_data.getDataPath())
     p.setGravity(0., 0., -9.81)
     #plane = p.loadURDF('plane.urdf')
@@ -268,38 +271,42 @@ if __name__ == '__main__':
     set_ball_velocity(INIT_BALL_VEL)
 
     # get three movable joints and the end-effector link's index
-    num_joints = p.getNumJoints(robot1)
     movable_joints = []
     end_effector_link_idx = None
-    for idx in range(num_joints):
-        info = p.getJointInfo(robot1, idx)
-        print('Joint {}: {}'.format(idx, info))
+    for robot_num, robot in enumerate([robot1, robot2]):
+        movable_joints.append([])
+        num_joints = p.getNumJoints(robot)
+        for idx in range(num_joints):
+            info = p.getJointInfo(robot, idx)
+            print('Joint {}: {}'.format(idx, info))
 
-        joint_type = info[2]
-        if joint_type != p.JOINT_FIXED:
-            movable_joints.append(idx)
+            joint_type = info[2]
+            if joint_type != p.JOINT_FIXED:
+                movable_joints[robot_num].append(idx)
 
-        link_name = info[12].decode('utf-8')
-        if link_name == 'end_effector':
-            end_effector_link_idx = idx
-            
-    for joint_index in movable_joints:
-        p.changeDynamics(robot1, joint_index, linearDamping=0, angularDamping=0)
+            link_name = info[12].decode('utf-8')
+            if link_name == 'end_effector':
+                end_effector_link_idx = idx
+
+        for joint_index in movable_joints[robot_num]:
+            p.changeDynamics(robot, joint_index, linearDamping=0, angularDamping=0)
         
     p.changeDynamics(ball, -1, linearDamping=0, angularDamping=0)
 
     # Set joint control mode to make the joints free to move (no motor control)
-    for joint_index in movable_joints:
-        p.setJointMotorControl2(bodyIndex=robot1,
-                                jointIndex=joint_index,
-                                controlMode=p.VELOCITY_CONTROL,
-                                force=0)  # Ensure no motor is controlling the joint
-        
+    for robot_num, robot in enumerate([robot1, robot2]):
+        for joint_index in movable_joints[robot_num]:
+            p.setJointMotorControl2(bodyIndex=robot,
+                                    jointIndex=joint_index,
+                                    controlMode=p.VELOCITY_CONTROL,
+                                    force=0)  # Ensure no motor is controlling the joint
+
 
     # Set the initial joint angles
     set_joint_angles(robot1, [0, 0, 0])
     set_joint_angles(robot2, [np.pi, 0, 0])
-
+    set_joint_vels(robot1, [0, 0, 0])
+    set_joint_vels(robot2, [0, 0, 0])
     dt = 1. / 240.
     catching_robot = robot1
     throwing_robot = robot1
