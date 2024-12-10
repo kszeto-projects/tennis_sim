@@ -304,6 +304,7 @@ if __name__ == '__main__':
                 optimal_states, optimal_controls = nlp(is_robot1, 0, q1, q1dot, dt, T=.25)  # catch = 1, throw = 0
                 # optimal_states, optimal_controls = nlp(is_robot1, q1, q1dot, dt, T=.25, catch_time=catch_time,
                 #                                        throw_velocity=throw_vel, throw_position=throw_pos)
+                print(optimal_controls)
                 did_calc_throw = True
 
             if step - throw_step < len(optimal_controls):
@@ -312,9 +313,22 @@ if __name__ == '__main__':
             pt = get_ball_trajectory()[0]
             # plot_ball_trajectory(pt)
             ee2 = get_end_effector_pos(robot2, end_effector_link_idx-1)
+
             ts = np.linspace(0, 1, 300).reshape(-1,1)
             points = pt(ts)
             if(np.min(np.linalg.norm((points - ee2),axis=1)) < 0.15):
+                print(ee2)
+                ee_pos = get_end_effector_pos(robot1,end_effector_link_idx)
+                ee_vel = get_end_effector_vel(robot1,end_effector_link_idx)
+                # x = ee_pos[0] + ee_vel[0]*tx
+                tx = np.sqrt(((ee2[0] - ee_pos[0]) / ee_vel[0]) ** 2)
+                ty = np.sqrt(((ee2[1] - ee_pos[1]) / ee_vel[1]) ** 2)
+                # z = ee_pos[2] + ee_vel[2]*tz - 0.5*g*tz^2
+                # a = -0.5g, b = ee_vel[2], c = ee_pos[2] - ee2z
+                # t = (-b - sqrt(b^2 - 4ac)) / 2a
+                # tz = (-ee_vel[2] - np.sqrt(ee_vel[2] ** 2 + 2 * 9.81 * (-ee_pos[2] + ee2[2]))) / (-9.81)
+                tz = (ee_vel[2] + np.sqrt(ee_vel[2] ** 2 - 2 * 9.81 * (ee2[2] - ee_pos[2]))) / 9.81
+                print(tx,ty,tz)
                 release_ball()
                 toggle_ball_grav()
         # if has_ball and waited:
@@ -336,11 +350,11 @@ if __name__ == '__main__':
         #     if (np.linalg.norm(ee_vel - get_ball_trajectory()[0](np.arange(len(optimal_controls))[np.newaxis].T*dt), axis=1) < .075).any(): # and np.linalg.norm(get_end_effector_vel(robot1, end_effector_link_idx) - throw_vel) < 0.1:
         #         release_ball()
         #         toggle_ball_grav()
-            
+
         
         
         p.stepSimulation()
-        # if(waited):
-        time.sleep(1./240.)
+        if waited:
+            time.sleep(1./240.)
 
     p.disconnect()

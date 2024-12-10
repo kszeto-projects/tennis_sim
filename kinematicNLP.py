@@ -1,4 +1,3 @@
-
 import casadi as ca
 import numpy as np
 
@@ -30,8 +29,11 @@ def nlp(robot, catch, q, qdot_initial, dt, T=1.0, throw_velocity=None, throw_pos
         if catch:
             cost += L(X[:,k], U[:,k], k * dt, robot)
         else:
-            cost += L_throw(X[:,k], U[:,k], k * dt, robot)
+            # cost += L_throw(X[:,k], U[:,k], k * dt, robot)
+            cost = Q(X[:, -1], U[:, -1])
         constraints.append(X[:,k+1] - x_next)
+
+
         
     #add acceleration_constraints
     constraints.append((U[:,0] - qdot_initial))
@@ -126,11 +128,38 @@ def L_throw(x, u, t, robot):
     else:
         ee_pos = forward_kinematics(x) + np.reshape(np.array(ROBOT2_BASE) - np.array(ROBOT1_BASE), (3, 1))
     # ee_vel = jacobian(x)@u
-    #
+    # calculate trajectory
+    # cost: want to reach state pos and vel that results in trajectory ending at desired x,y,z (robot2 ee)
+    # path planning to reasonable position?
+    # if initially far from reasonable trajectory, high cost
+    # lower penalty in beginning and end of control sequence?
+    # internal_cost = (T - t)*(ca.norm_2(tx - ty) ** 2 + ca.norm_2(tx - tz) ** 2 + ca.norm_2(ty - tz) ** 2)
+
+    # ee2x = v(x) * tx + ee1_x
+    # ee2y = v(y) * ty + ee1_y
+    # ee2z = v(z) * tz + ee1_z - 0.5 * g * tz ^ 2
     # pos_cost = ca.norm_2(ee_pos )**2
     # internal_cost =  ca.norm_2(ee_vel - throw_vel) **2
     internal_cost = ca.norm_2(ee_pos - throw(t)[0]) ** 2
     return internal_cost
+
+def Q(x,u):
+    ee_pos = forward_kinematics(x)
+    ee_vel = jacobian(x) @ u
+
+    ee2x = 2
+    ee2y = 0
+    ee2z = 0
+
+    det = ee_vel[2] ** 2 + 2 * 9.81 * (ee_pos[2] - ee2z) + 0.01
+    det = ca.fmax(det,0)
+    tx = ca.sqrt(((ee2x - ee_pos[0]) / ee_vel[0]) ** 2)
+    ty = ca.sqrt(((ee2y - ee_pos[1]) / ee_vel[1]) ** 2)
+    tz = (-ee_vel[2] - ca.sqrt(det)) / (-9.81)
+    # tz = (ee_vel[2] - ca.sqrt(ee_vel[2]**2-2*9.81 * (ee2z - ee_pos[2])))/9.81
+    terminal_cost = ca.norm_2(tx - tz) ** 2 + ca.norm_2(ty - tz) ** 2 + ca.norm_2(tx - ty) ** 2
+
+    return terminal_cost
 
 if __name__ == '__main__':
     q = np.array([0, 0.1, 0.1])

@@ -1,6 +1,7 @@
 import numpy as np
 import casadi as ca
 from casadi import sin, cos, pi
+import pybullet as p
 
 def D(q):
     q1 = q[0]
@@ -95,6 +96,6 @@ def jacobian(q):
     ell2 = .2
     ell3 = .2
 
-    return ca.vertcat(ca.horzcat(-(ell2*cos(q3) + ell3*cos(q2 + q3))*sin(q1), -(ell2*sin(q3) + ell3*sin(q2 + q3))*cos(q1), -ell3*sin(q2 + q3)*cos(q1)),
-                      ca.horzcat((ell2*cos(q3) + ell3*cos(q2 + q3))*cos(q1), -(ell2*sin(q3) + ell3*sin(q2 + q3))*sin(q1), -ell3*sin(q1)*sin(q2 + q3)),
-                      ca.horzcat(0, ell2*cos(q3) + ell3*cos(q2 + q3), ell3*cos(q2 + q3)))
+    return ca.vertcat(ca.horzcat(-(ell2*cos(q2) + ell3*cos(q2 + q3))*sin(q1), -(ell2*sin(q2) + ell3*sin(q2 + q3))*cos(q1), -ell3*sin(q2 + q3)*cos(q1)),
+                      ca.horzcat((ell2*cos(q2) + ell3*cos(q2 + q3))*cos(q1), -(ell2*sin(q2) + ell3*sin(q2 + q3))*sin(q1), -ell3*sin(q1)*sin(q2 + q3)),
+                      ca.horzcat(0, ell2*cos(q2) + ell3*cos(q2 + q3), ell3*cos(q2 + q3)))
