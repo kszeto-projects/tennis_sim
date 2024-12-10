@@ -6,7 +6,7 @@ from config import * #GRAV, INIT_BALL_POS, INIT_BALL_VEL, ROBOT1_BASE, ROBOT2_BA
 throw_vel = None
 throw_pos = None
 t_catch = None
-def nlp(robot, catch, q, qdot_initial, dt, T=1.0, throw_velocity=None, throw_position=None, catch_time=None):
+def nlp(robot, q, qdot_initial, dt, T=1.0, init_ball_pos=INIT_BALL_POS, init_ball_vel=INIT_BALL_VEL):
     m = 3
     n = 3
 
@@ -26,7 +26,7 @@ def nlp(robot, catch, q, qdot_initial, dt, T=1.0, throw_velocity=None, throw_pos
     constraints = [X[:,0] - x0]
     for k in range(N):
         x_next = X[:,k] + U[:,k] * dt
-        cost += L(X[:,k], U[:,k], k * dt, robot)
+        cost += L(X[:,k], U[:,k], k * dt, robot, init_ball_pos=init_ball_pos, init_ball_vel=init_ball_vel)
         # else:
         #     cost += L_throw(X[:,k], U[:,k], k * dt, robot)
         #     cost = Q(X[:, -1], U[:, -1])
@@ -41,13 +41,13 @@ def nlp(robot, catch, q, qdot_initial, dt, T=1.0, throw_velocity=None, throw_pos
 
     lbg = np.zeros(constraints.shape)
     ubg = np.zeros(constraints.shape)
-    max_joint_accel = 10000
+    max_joint_accel = 100
     lbg[-m*N:] = -max_joint_accel
     ubg[-m*N:] = max_joint_accel
 
     lbx = -np.inf * np.ones((n * (N + 1) + m * N, 1))
     ubx = np.inf * np.ones((n * (N + 1) + m * N, 1))
-    max_joint_vel = 100_000
+    max_joint_vel = 100
     ubx[-m * N:] = max_joint_vel
     lbx[-m * N:] = -max_joint_vel
 
@@ -66,7 +66,7 @@ def nlp(robot, catch, q, qdot_initial, dt, T=1.0, throw_velocity=None, throw_pos
     opts = {
         'ipopt': {
             'print_level': 0,
-            'max_iter': 500,
+            'max_iter': 1000,
             # 'tol': 1e-6,
         }
     }
@@ -86,7 +86,7 @@ def nlp(robot, catch, q, qdot_initial, dt, T=1.0, throw_velocity=None, throw_pos
     return optimal_states, optimal_controls
 
 '''Throwing optimal control problem formulation: slightly different. trying to use planning horizon as optimization variable'''
-def nlp_throw(robot, q, qdot_initial, goal, dt, T = 1.0):
+def nlp_throw(is_robot1, q, qdot_initial, goal, dt, T = 1.0):
     m = 3
     n = 3
 
@@ -96,19 +96,26 @@ def nlp_throw(robot, q, qdot_initial, goal, dt, T = 1.0):
     # t_catch = catch_time
     # T = ca.MX.sym('T') # can try to make T a part of the optimization variables
     # N = ca.floor(T / dt)
-    N = int(1/dt)
+    N = int(T/dt)
     Xsym = ca.MX.sym('X', n * (N + 1), 1)
     Usym = ca.MX.sym('U', m * N, 1)
 
     X = Xsym.reshape((n, N + 1))
     U = Usym.reshape((m, N))
     X_T = X[:,-1]
-    U_T = U[:,-1]
+    U_T = U[:,-2]
     g = np.zeros((3,1))
     g[2] = -0.5*9.81
     ca_g = ca.DM(g)
     ca_end = ca.DM(goal)
-    v = forward_kinematics(X_T) + 0.8 * jacobian(X_T) @ U_T + 0.64 * ca_g - ca_end
+    T_final = 0.8
+    if is_robot1:
+        x_pos = forward_kinematics(X_T)
+    else:
+        x_pos = forward_kinematics(X_T) + np.reshape(np.array(ROBOT2_BASE) - np.array(ROBOT1_BASE), (3, 1))
+    # offset by difference between robot bases
+
+    v = x_pos + T_final * jacobian(X_T) @ U_T + (T_final**2) * ca_g - ca_end
 
     x0 = ca.vertcat(q)
     cost = ca.MX(0)
@@ -116,7 +123,7 @@ def nlp_throw(robot, q, qdot_initial, goal, dt, T = 1.0):
     for k in range(N):
         x_next = X[:, k] + U[:, k] * dt
         constraints.append(X[:, k + 1] - x_next)
-        cost += L_throw(X[:,k], U[:,k], k * dt, goal, robot)
+        cost += L_throw(X[:,k], U[:,k], k * dt, goal, is_robot1)
     cost += (ca.norm_2(v))**2 #Q(X[:, -1], U[:, -1], goal)
 
     # add acceleration_constraints
@@ -159,7 +166,7 @@ def nlp_throw(robot, q, qdot_initial, goal, dt, T = 1.0):
     opts = {
         'ipopt': {
             'print_level': 0,
-            'max_iter': 500,
+            'max_iter': 1000,
             # 'tol': 1e-6,
         }
     }
@@ -178,43 +185,27 @@ def nlp_throw(robot, q, qdot_initial, goal, dt, T = 1.0):
     # print('optimal controls:', optimal_controls)
     return optimal_states, optimal_controls
 
-def b(t):
+def b(t, init_ball_pos=INIT_BALL_POS, init_ball_vel=INIT_BALL_VEL):
 
     def vel(t):
-        return INIT_BALL_VEL + GRAV * t
+        return init_ball_vel + GRAV * t
 
     def pos(t):
-        return INIT_BALL_POS + INIT_BALL_VEL * t + 0.5 * GRAV * t ** 2
+        return init_ball_pos + init_ball_vel * t + 0.5 * GRAV * t ** 2
 
     return pos(t), vel(t)
 
-def throw(t): # calculate reverse trajectory starting at z = -0.2
-    # z_vel = INIT_BALL_VEL[2]
-    # z_pos_init = INIT_BALL_POS[2]
-    # z_pos_end = -0.2
-    # throw_t = (-z_vel - np.sqrt(z_vel ** 2 - (4 * 0.5 * GRAV * (z_pos_init - z_pos_end)))) / (GRAV)
-    # init_throw_pos = b(throw_t)[0]
-    # init_throw_vel = -b(throw_t)[1]
-
-    def t_vel(t):
-        return INIT_THROW_VEL + GRAV * t
-
-    def t_pos(t):
-        return INIT_THROW_POS + INIT_THROW_VEL * t + 0.5 * GRAV * t **2
-
-    return t_pos(t), t_vel(t)
-
-def L(x, u, t, robot):
-    if robot: # robot1
+def L(x, u, t, is_robot1, init_ball_pos=INIT_BALL_POS, init_ball_vel=INIT_BALL_VEL):
+    if is_robot1: # robot1
         ee_pos = forward_kinematics(x)
     else:
         ee_pos = forward_kinematics(x) + np.reshape(np.array(ROBOT2_BASE) - np.array(ROBOT1_BASE),(3,1))
     #control_weight = 0.0001
-    internal_cost = ca.norm_2(ee_pos - b(t)[0]) ** 2 # + control_weight * ca.norm_2(u) ** 2
+    internal_cost = ca.norm_2(ee_pos - b(t, init_ball_pos, init_ball_vel)[0]) ** 2 # + control_weight * ca.norm_2(u) ** 2
     return internal_cost
 
-def L_throw(x, u, t, goal, robot):
-    if robot:  # robot1
+def L_throw(x, u, t, goal, is_robot1):
+    if is_robot1:
         ee_pos = forward_kinematics(x)
     else:
         ee_pos = forward_kinematics(x) + np.reshape(np.array(ROBOT2_BASE) - np.array(ROBOT1_BASE), (3, 1))
@@ -229,35 +220,12 @@ def L_throw(x, u, t, goal, robot):
     ee_unit_vel = ee_vel[0:2]/ca.norm_2(ee_vel)
     goal_unit_vel = (ee_pos[0:2] + goal[0:2]) / ca.norm_2(ee_pos[0:2] + goal[0:2])
 
-    internal_cost = 0.001 * ca.norm_2(x[2]) #(t**2*(1.0/24))*(ca.norm_2(ee_unit_vel - goal_unit_vel)) +
+    # internal_cost = 0.001 * ca.norm_2(x[2]) #(t**2*(1.0/24))*(ca.norm_2(ee_unit_vel - goal_unit_vel)) +
+    # internal_cost = 0.00001 * ca.norm_2(u)**2
+    internal_cost = 0
     #0.05 * ca.norm_2(ee_vel) ** 2
     return internal_cost
 
-# def Q(x,u):
-#     ee_pos = forward_kinematics(x)
-#     ee_vel = jacobian(x) @ u
-#     #
-#     # ee2x = 2
-#     # ee2y = 0
-#     # ee2z = 0
-#     #
-#     # det = ee_vel[2] ** 2 + 2 * 9.81 * (ee_pos[2] - ee2z)
-#     # det = ca.fmax(det,0.01)
-#     # # tx = ca.sqrt(((ee2x - ee_pos[0]) / ee_vel[0]) ** 2)
-#     # # ty = ca.sqrt(((ee2y - ee_pos[1]) / ee_vel[1]) ** 2)
-#     # tx = (ee2x + ee_pos[0]) / ee_vel[0]
-#     # ty = (ee2y - ee_pos[1]) / ee_vel[1]
-#     # tz = (-ee_vel[2] - ca.sqrt(det)) / (-9.81)
-#     # # tz = (ee_vel[2] - ca.sqrt(ee_vel[2]**2-2*9.81 * (ee2z - ee_pos[2])))/9.81
-#     # terminal_cost = ca.norm_2(tx - tz) ** 2 #+ ca.norm_2(ty - tz) ** 2 + ca.norm_2(tx - ty) ** 2
-#     terminal_cost = ca.norm_2(x + jacobian(x) @ u + (ca_g @ jacobian(X_T)) @ U_T - ca_end)
-#
-#     return terminal_cost
-
-# def Q(x,u):
-#
-#     terminal_cost =
-#     return terminal_cost
 
 if __name__ == '__main__':
     q = np.array([0, 0.1, 0.1])

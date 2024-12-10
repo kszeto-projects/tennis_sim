@@ -13,7 +13,6 @@ THROW_TIME = 0.8134
 INIT_THROW_VEL = np.array([2.2, 0, 4.48534])
 INIT_THROW_POS = np.array([0.0092, 0, -0.20103338])
 
-
 # keep robot frames aligned for simplicity and to reuse forward kin
 ROBOT1_BASE = (0,0,0)
 ROBOT2_BASE = (2,0,0)
