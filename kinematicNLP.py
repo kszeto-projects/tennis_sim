@@ -41,13 +41,13 @@ def nlp(robot, q, qdot_initial, dt, T=1.0, init_ball_pos=INIT_BALL_POS, init_bal
 
     lbg = np.zeros(constraints.shape)
     ubg = np.zeros(constraints.shape)
-    max_joint_accel = 100
+    max_joint_accel = 500
     lbg[-m*N:] = -max_joint_accel
     ubg[-m*N:] = max_joint_accel
 
     lbx = -np.inf * np.ones((n * (N + 1) + m * N, 1))
     ubx = np.inf * np.ones((n * (N + 1) + m * N, 1))
-    max_joint_vel = 100
+    max_joint_vel = 500
     ubx[-m * N:] = max_joint_vel
     lbx[-m * N:] = -max_joint_vel
 
@@ -65,9 +65,9 @@ def nlp(robot, q, qdot_initial, dt, T=1.0, init_ball_pos=INIT_BALL_POS, init_bal
     }
     opts = {
         'ipopt': {
-            'print_level': 0,
+            # 'print_level': 0,
             'max_iter': 1000,
-            # 'tol': 1e-6,
+            'tol': 1e-6,
         }
     }
     solver = ca.nlpsol('solver', 'ipopt', nlp_prob,opts)
@@ -86,7 +86,7 @@ def nlp(robot, q, qdot_initial, dt, T=1.0, init_ball_pos=INIT_BALL_POS, init_bal
     return optimal_states, optimal_controls
 
 '''Throwing optimal control problem formulation: slightly different. trying to use planning horizon as optimization variable'''
-def nlp_throw(is_robot1, q, qdot_initial, goal, dt, T = 1.0):
+def nlp_throw(is_robot1, q, qdot_initial, goal, dt, T = 1.0, T_final = 0.4):
     m = 3
     n = 3
 
@@ -108,7 +108,6 @@ def nlp_throw(is_robot1, q, qdot_initial, goal, dt, T = 1.0):
     g[2] = -0.5*9.81
     ca_g = ca.DM(g)
     ca_end = ca.DM(goal)
-    T_final = 0.8
     if is_robot1:
         x_pos = forward_kinematics(X_T)
     else:
@@ -135,7 +134,7 @@ def nlp_throw(is_robot1, q, qdot_initial, goal, dt, T = 1.0):
 
     lbg = np.zeros(constraints.shape)
     ubg = np.zeros(constraints.shape)
-    max_joint_accel = 100
+    max_joint_accel = 500
     lbg[-m * N:] = -max_joint_accel
     ubg[-m * N:] = max_joint_accel
     # lbg[-m * N:-1] = -max_joint_accel
@@ -145,7 +144,7 @@ def nlp_throw(is_robot1, q, qdot_initial, goal, dt, T = 1.0):
 
     ubx = np.inf * np.ones((n * (N + 1) + m * N, 1))
     lbx = -np.inf * np.ones((n * (N + 1) + m * N, 1))
-    max_joint_vel = 100
+    max_joint_vel = 500
     ubx[-m * N:] = max_joint_vel
     lbx[-m * N:] = -max_joint_vel
     # ubx[-1] = 5
@@ -165,9 +164,9 @@ def nlp_throw(is_robot1, q, qdot_initial, goal, dt, T = 1.0):
     }
     opts = {
         'ipopt': {
-            'print_level': 0,
+            # 'print_level': 0,
             'max_iter': 1000,
-            # 'tol': 1e-6,
+            'tol': 1e-6,
         }
     }
     solver = ca.nlpsol('solver', 'ipopt', nlp_prob, opts)

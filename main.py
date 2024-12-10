@@ -215,7 +215,7 @@ def catch_phase(robot, step):
         q_robot = get_joint_angles(robot)
         qdot_robot = get_joint_velocities(robot)
         ball_pos, ball_vel = get_ball_state()
-        catch_states, catch_controls = nlp(robot==robot1, q_robot, qdot_robot, dt, T=1.0, init_ball_pos=ball_pos, init_ball_vel=ball_vel)
+        catch_states, catch_controls = nlp(robot==robot1, q_robot, qdot_robot, dt, T=.75, init_ball_pos=ball_pos, init_ball_vel=ball_vel)
         did_calc_catch = True
 
     if step < len(catch_controls):
@@ -243,8 +243,8 @@ def throw_phase(robot, step):
         catching_q = get_joint_angles(catching_robot)
         throwing_qdot = get_joint_velocities(throwing_robot)
         catching_qdot = get_joint_velocities(catching_robot)
-        goal_pt = get_end_effector_pos(catching_robot, end_effector_link_idx)
-        throw_states, throw_controls = nlp_throw(throwing_robot == robot1, throwing_q, throwing_qdot, goal_pt, dt, T=.75)
+        goal_pt = get_end_effector_pos(catching_robot, end_effector_link_idx-1)
+        throw_states, throw_controls = nlp_throw(throwing_robot == robot1, throwing_q, throwing_qdot, goal_pt, dt, T=.45, T_final=0.5)
         print("goal:", goal_pt)
         did_calc_throw = True
     if step < len(throw_controls):
@@ -259,8 +259,8 @@ def throw_phase(robot, step):
     return False
 ## Main code
 if __name__ == '__main__': 
-    # physics_client = p.connect(p.GUI, options=f"--mp4=throw_catch.mp4")
-    physics_client = p.connect(p.GUI)
+    physics_client = p.connect(p.GUI, options=f"--mp4=throw_catch.mp4")
+    # physics_client = p.connect(p.GUI)
     p.setAdditionalSearchPath(pybullet_data.getDataPath())
     p.setGravity(0., 0., -9.81)
     #plane = p.loadURDF('plane.urdf')
