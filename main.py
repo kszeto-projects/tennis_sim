@@ -6,7 +6,7 @@ import dynamics
 from numpy import sin, cos, pi
 import os
 import pdb
-from kinematicNLP import nlp
+from kinematicNLP import nlp, nlp_throw
 from config import GRAV, INIT_BALL_POS, INIT_BALL_VEL, ROBOT1_BASE, ROBOT2_BASE
 
 
@@ -152,7 +152,8 @@ def plot_ball_trajectory(pt, num_points = 50):
     #plot the trajectory of the ball
     ts = np.linspace(0, 1, num_points).reshape(-1,1)
     points = pt(ts)
-    p.addUserDebugPoints(points, 255*np.ones_like(points), pointSize=5)
+    plot_id = p.addUserDebugPoints(points, 255*np.ones_like(points), pointSize=5)
+    return plot_id
 
 def attempt_catch(robot, ball):
     global catch_constraint, has_ball
@@ -258,28 +259,31 @@ if __name__ == '__main__':
     did_calc_throw = False
     waited = False
     catch_time = None
+    ball_pts = None
+    g = np.zeros((3, 3))
+    g[2, 2] = -0.5 * 9.81
     # print(p.getPhysicsEngineParameters()['fixedTimeStep'])
     for step in range(10000):
         q1 = get_joint_angles(robot1)
         q2 = get_joint_angles(robot2)
+        ee2 = get_end_effector_pos(robot2, end_effector_link_idx - 2)
         # ctrl_idx = _ // int(p.getPhysicsEngineParameters()['fixedTimeStep'] / dt)
         # print(f"ctrl_idx: {ctrl_idx}")
         if step < len(optimal_controls):
-            # set_robot_angles(robot1, optimal_states[step])
-            # set_joint_vels(robot1, optimal_controls[step])
             apply_joint_vels(robot1, optimal_controls[step])
 
 
         if step > len(optimal_controls):
+
             waited=True
             
 
         if do_ball_grav:
             pt, vt = get_ball_trajectory()
-            plot_ball_trajectory(pt)
+            ball_pts = plot_ball_trajectory(pt)
             toggle_ball_grav()
 
-        # if not do_ball_grav:
+        ''''# if not do_ball_grav:
         #     p.applyExternalForce(ball, -1, [0, 0, ball_mass * 9.81], [0, 0, 0], p.LINK_FRAME)
         # print("robot1_ee_pos: " + str(get_end_effector_pos(robot1, end_effector_link_idx)))
         # print("robot2_ee_pos: " + str(get_end_effector_pos(robot2, end_effector_link_idx)))
@@ -287,7 +291,7 @@ if __name__ == '__main__':
         # res = test_dynamics(q1, get_joint_velocities(robot1), grav_comp(q1, robot1) + .0001, dt)
         # print("diff: " + str(q1 - last_q) + " " + str(get_joint_velocities(robot1) - last_qdot))
         # last_q = res[:3]
-        # last_qdot = res[3:]
+        # last_qdot = res[3:]'''
 
         if not has_ball and not waited:
             (throw_pos, caught_ball_vel) = attempt_catch(robot1, ball)
@@ -297,40 +301,75 @@ if __name__ == '__main__':
         if has_ball and waited:
             if not did_calc_throw:
                 throw_step = step
+
                 q1 = get_joint_angles(robot1)
                 q2 = get_joint_angles(robot2)
                 q1dot = get_joint_velocities(robot1)
                 q2dot = get_joint_velocities(robot2)
-                optimal_states, optimal_controls = nlp(is_robot1, 0, q1, q1dot, dt, T=.25)  # catch = 1, throw = 0
-                # optimal_states, optimal_controls = nlp(is_robot1, q1, q1dot, dt, T=.25, catch_time=catch_time,
-                #                                        throw_velocity=throw_vel, throw_position=throw_pos)
-                print(optimal_controls)
+                optimal_states, optimal_controls = nlp_throw(is_robot1, q1, q1dot, ee2, dt, T = 0.25)
+                print("goal:",ee2)
+
+                # print(optimal_states[-1],optimal_controls[-1])
+                joint_angle = optimal_states[-1]
+                joint_vel = optimal_controls[-1]
+                J = jac(joint_angle,robot1)
+                set_joint_angles(robot1, joint_angle)
+                set_joint_vels(robot1, joint_vel)
+                p_ee = get_end_effector_pos(robot1, end_effector_link_idx)
+                v_ee = get_end_effector_vel(robot1, end_effector_link_idx)
+                # print((p_ee + J @ joint_vel + (g @ J) @ joint_vel))
+                # print((p_ee + v_ee + g @ v_ee))
+                set_ball_pos(p_ee)
+                set_ball_velocity(v_ee)
+                pt = get_ball_trajectory()[0]
+                plot_ball_trajectory(pt)
+                set_joint_angles(robot1, q1)
+                set_joint_vels(robot1, q1dot)
+                print("error:", np.linalg.norm(pt(0.8) - ee2))
                 did_calc_throw = True
 
             if step - throw_step < len(optimal_controls):
                 apply_joint_vels(robot1, optimal_controls[step - throw_step])
-        
-            pt = get_ball_trajectory()[0]
-            # plot_ball_trajectory(pt)
-            ee2 = get_end_effector_pos(robot2, end_effector_link_idx-1)
+                # pt = get_ball_trajectory()[0]
+                # pt_id = plot_ball_trajectory(pt)
+                # p.removeUserDebugItem(pt_id)
 
-            ts = np.linspace(0, 1, 300).reshape(-1,1)
-            points = pt(ts)
-            if(np.min(np.linalg.norm((points - ee2),axis=1)) < 0.15):
-                print(ee2)
-                ee_pos = get_end_effector_pos(robot1,end_effector_link_idx)
-                ee_vel = get_end_effector_vel(robot1,end_effector_link_idx)
-                # x = ee_pos[0] + ee_vel[0]*tx
-                tx = np.sqrt(((ee2[0] - ee_pos[0]) / ee_vel[0]) ** 2)
-                ty = np.sqrt(((ee2[1] - ee_pos[1]) / ee_vel[1]) ** 2)
-                # z = ee_pos[2] + ee_vel[2]*tz - 0.5*g*tz^2
-                # a = -0.5g, b = ee_vel[2], c = ee_pos[2] - ee2z
-                # t = (-b - sqrt(b^2 - 4ac)) / 2a
-                # tz = (-ee_vel[2] - np.sqrt(ee_vel[2] ** 2 + 2 * 9.81 * (-ee_pos[2] + ee2[2]))) / (-9.81)
-                tz = (ee_vel[2] + np.sqrt(ee_vel[2] ** 2 - 2 * 9.81 * (ee2[2] - ee_pos[2]))) / 9.81
-                print(tx,ty,tz)
+            if step - throw_step == len(optimal_controls):
+                p.removeUserDebugItem(ball_pts)
+                ball_pts = get_ball_trajectory()[0]
+                plot_ball_trajectory(ball_pts)
                 release_ball()
                 toggle_ball_grav()
+                # calculate where ball will land in 0.8s
+                ball_end = ball_pts(0.8)
+                print("ball lands at:",ball_end)
+                print("error:", np.linalg.norm(ball_end - ee2))
+                # turn on damping or something to slow down arms?
+                waited = False
+
+
+
+            # pt = get_ball_trajectory()[0]
+            # plot_ball_trajectory(pt)
+
+
+            '''# ts = np.linspace(0, 1, 300).reshape(-1,1)
+            # points = pt(ts)
+            # if(np.min(np.linalg.norm((points - ee2),axis=1)) < 0.05):
+            #     print(ee2)
+            #     ee_pos = get_end_effector_pos(robot1,end_effector_link_idx)
+            #     ee_vel = get_end_effector_vel(robot1,end_effector_link_idx)
+            #     # x = ee_pos[0] + ee_vel[0]*tx
+            #     tx = np.sqrt(((ee2[0] - ee_pos[0]) / ee_vel[0]) ** 2)
+            #     ty = np.sqrt(((ee2[1] - ee_pos[1]) / ee_vel[1]) ** 2)
+            #     # z = ee_pos[2] + ee_vel[2]*tz - 0.5*g*tz^2
+            #     # a = -0.5g, b = ee_vel[2], c = ee_pos[2] - ee2z
+            #     # t = (-b - sqrt(b^2 - 4ac)) / 2a
+            #     # tz = (-ee_vel[2] - np.sqrt(ee_vel[2] ** 2 + 2 * 9.81 * (-ee_pos[2] + ee2[2]))) / (-9.81)
+            #     tz = (ee_vel[2] + np.sqrt(ee_vel[2] ** 2 - 2 * 9.81 * (ee2[2] - ee_pos[2]))) / 9.81
+            #     print(tx,ty,tz)
+            #     release_ball()
+            #     toggle_ball_grav()
         # if has_ball and waited:
         #     if not did_calc_throw:
         #         throw_step = step
@@ -349,11 +388,13 @@ if __name__ == '__main__':
         #     ee_vel = get_end_effector_vel(robot1, end_effector_link_idx)
         #     if (np.linalg.norm(ee_vel - get_ball_trajectory()[0](np.arange(len(optimal_controls))[np.newaxis].T*dt), axis=1) < .075).any(): # and np.linalg.norm(get_end_effector_vel(robot1, end_effector_link_idx) - throw_vel) < 0.1:
         #         release_ball()
-        #         toggle_ball_grav()
+        #         toggle_ball_grav()'''
 
         
         
         p.stepSimulation()
+        if not waited:
+            time.sleep(1./960.)
         if waited:
             time.sleep(1./240.)
 
