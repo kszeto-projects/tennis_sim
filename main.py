@@ -317,6 +317,7 @@ if __name__ == '__main__':
             throw_step = step
             state = "T"
             throwing_robot = catching_robot
+
         if state == "T" and throw_phase(throwing_robot, step-throw_step):
             state = "C"
             catching_robot = robot2 if throwing_robot == robot1 else robot1
