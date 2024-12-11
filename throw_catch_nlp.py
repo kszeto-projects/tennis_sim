@@ -27,8 +27,8 @@ def nlp_combined(is_throw_robot1, q, qdot_initial, qdot_catch, q_catch, goal, dt
 
     Xt = Xthrow_sym.reshape((n, N + 1))
     Ut = Uthrow_sym.reshape((m, N))
-    Xc = Xcatch_sym.reshape((n, N + 1))
-    Uc = Ucatch_sym.reshape((m, N))
+    Xc = Xcatch_sym.reshape((n, N_catch + 1))
+    Uc = Ucatch_sym.reshape((m, N_catch))
     X_T = Xt[:,-1]
     U_T = Ut[:,-1]
     g = np.zeros((3,1))
@@ -60,11 +60,13 @@ def nlp_combined(is_throw_robot1, q, qdot_initial, qdot_catch, q_catch, goal, dt
 
     cost += (ca.norm_2(v))**2
 
-    if not is_throw_robot1:
-        x_catch_pos = forward_kinematics(Xc[:,-1])
-    else:
-        x_catch_pos = forward_kinematics(Xc[:,-1]) + np.reshape(np.array(ROBOT2_BASE) - np.array(ROBOT1_BASE), (3, 1))
-    cost += (ca.norm_2(x_catch_pos - goal))**2
+    for k in range(N_catch):
+        if not is_throw_robot1:
+            x_catch_pos = forward_kinematics(Xc[:,k])
+        else:
+            x_catch_pos = forward_kinematics(Xc[:,k]) + np.reshape(np.array(ROBOT2_BASE) - np.array(ROBOT1_BASE), (3, 1))
+
+            cost += (ca.norm_2(x_catch_pos - goal))**2
 
     # add acceleration_constraints
     constraints.append((Ut[:, 0] - qdot_initial))
@@ -83,9 +85,8 @@ def nlp_combined(is_throw_robot1, q, qdot_initial, qdot_catch, q_catch, goal, dt
     max_joint_accel = 500
     lbg[-m * N:] = -max_joint_accel
     ubg[-m * N:] = max_joint_accel
-    lbg[-m * int(N*.15): ] = -5
+    lbg[-m * int(N*.15): ] = -5 #prevent jerky motion at end of throw
     ubg[-m * int(N*.15): ] = 5
-
 
     ubx = np.inf * np.ones((n * (N + 1) + m * N, 1))
     lbx = -np.inf * np.ones((n * (N + 1) + m * N, 1))
@@ -104,16 +105,16 @@ def nlp_combined(is_throw_robot1, q, qdot_initial, qdot_catch, q_catch, goal, dt
     lbx_catch[-m * N_catch:] = -max_joint_vel
 
     casadi_x = ca.vertcat(Xthrow_sym, Uthrow_sym, Xcatch_sym, Ucatch_sym)
-
+    casadi_constraints = ca.vertcat(constraints, catch_constrains)
     nlp_prob = {
         'x': casadi_x,
         'f': cost,
-        'g': constraints
+        'g': casadi_constraints
     }
     opts = {
         'ipopt': {
-            # 'print_level': 0,
-            'max_iter': 1000,
+            'print_level': 0,
+            # 'max_iter': 1000,
             'tol': 1e-6,
         }
     }
@@ -135,11 +136,10 @@ def nlp_combined(is_throw_robot1, q, qdot_initial, qdot_catch, q_catch, goal, dt
     optimal_states_throw = np.array(sol['x'][0:n * (N + 1)].reshape((n, N + 1))).T
     optimal_controls_throw = np.array(sol['x'][n * (N + 1): n * (N + 1) + m*N].reshape((m, N))).T
 
-    optimal_states_catch = np.array(sol['x'][0:n * (N + 1)].reshape((n, N + 1))).T
-    optimal_controls_catch = np.array(sol['x'][n * (N + 1): n * (N + 1) + m*N].reshape((m, N))).T
+    optimal_states_catch = np.array(sol['x'][n * (N + 1) + m*N: n * (N + 1) + m*N + n * (N_catch + 1)].reshape((n, N_catch + 1))).T
+    optimal_controls_catch = np.array(sol['x'][-m*N_catch:].reshape((m, N_catch))).T
 
-    return optimal_states, optimal_controls
-
+    return optimal_states_throw, optimal_controls_throw, optimal_states_catch, optimal_controls_catch
 
 
 def nlp(robot, q, qdot_initial, dt, T=1.0, init_ball_pos=INIT_BALL_POS, init_ball_vel=INIT_BALL_VEL):

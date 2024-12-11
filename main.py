@@ -38,32 +38,38 @@ def jac(q, robot):
     jac_t, jac_r = p.calculateJacobian(robot, end_effector_link_idx, zero_vec, [q1, q2, q3], zero_vec, zero_vec)
     return np.array(jac_t)
 
-def generate_sphere(radius, mass=1.0):
+def generate_sphere(radius, mass=1.0, color_rgba=[1, 0, 0, 0.7]):
     # create urdf text and write it to a file in tmp dir
-    file_name = f"/tmp/sphere_{radius}_{mass}.urdf"
+    color = " ".join(map(str, color_rgba))
+    print(color)
+    color_str= "-".join(map(str, color_rgba))
+    file_name = f"/tmp/sphere_{radius}_{mass}_{color_str}.urdf"
     #check if file already exists
     if os.path.exists(file_name):
         return file_name
     inertia = 2.0/5.0 * mass * radius**2
     urdf_text = f"""<?xml version="1.0" encoding="utf-8"?>
                     <robot name="sphere">
-                      <link name="base_link">
-                        <inertial>
-                            <origin xyz="0 0 0" rpy="0 0 0" />
-                            <mass value="{mass}"/>
-                            <inertia ixx="{inertia}" iyy="{inertia}" izz="{inertia}" ixy="0" ixz="0" iyz="0" />
-                        </inertial>
-                        <visual>
-                          <geometry>
-                            <sphere radius="{radius}"/>
-                          </geometry>
-                          <material name="blue"/>
-                        </visual>
-                        <collision>
-                          <geometry>
-                            <sphere radius="{radius}"/>
-                          </geometry>
-                        </collision>
+                        <material name="color">
+                            <color rgba="{color}"/>
+                        </material>
+                        <link name="base_link">
+                            <inertial>
+                                <origin xyz="0 0 0" rpy="0 0 0" />
+                                <mass value="{mass}"/>
+                                <inertia ixx="{inertia}" iyy="{inertia}" izz="{inertia}" ixy="0" ixz="0" iyz="0" />
+                            </inertial>
+                            <visual>
+                              <geometry>
+                                <sphere radius="{radius}"/>
+                              </geometry>
+                              <material name="color"/>
+                            </visual>
+                            <collision>
+                              <geometry>
+                                <sphere radius="{radius}"/>
+                              </geometry>
+                            </collision>
                       </link>
                     </robot> """
 
@@ -157,9 +163,9 @@ def plot_ball_trajectory(pt, num_points = 50):
     ts = np.linspace(0, 1, num_points).reshape(-1,1)
     points = pt(ts)
     if plot_id is not None:
-        plot_id = p.addUserDebugPoints(points, 255*np.ones_like(points), pointSize=5, replaceItemUniqueId=plot_id)
+        plot_id = p.addUserDebugPoints(points, 255*np.ones_like(points), pointSize=3, replaceItemUniqueId=plot_id)
     else:
-        plot_id = p.addUserDebugPoints(points, 255*np.ones_like(points), pointSize=5)
+        plot_id = p.addUserDebugPoints(points, 255*np.ones_like(points), pointSize=3)
     return plot_id
 
 def attempt_catch(robot, ball):
@@ -173,8 +179,9 @@ def attempt_catch(robot, ball):
     cur_ball_pos, cur_ball_vel = get_ball_state()
 
     #if ball is close enough to end effector, and moving at a similar speed, apply a constraint to "catch" the ball
-    if np.linalg.norm(ee_pos - cur_ball_pos) < 0.05: # and np.linalg.norm(ee_vel - cur_ball_vel) < 0.1:
+    if np.linalg.norm(ee_pos - cur_ball_pos) < 0.075: # and np.linalg.norm(ee_vel - cur_ball_vel) < 0.1:
         catch_constraint = p.createConstraint(robot, end_effector_link_idx, ball, -1, p.JOINT_FIXED, [0, 0, 0], [0, 0, 0], [0, 0, 0])
+        # p.stepSimulation()
         has_ball = True
         print(f"Ball caught! at pos: {cur_ball_pos}, ee_pos : {ee_pos}")
         return (cur_ball_pos, cur_ball_vel)
@@ -253,10 +260,57 @@ def throw_phase(robot, step):
         did_calc_throw = False
         return True
     return False
+
+def combined_phase(robot, step):
+    from throw_catch_nlp import nlp_combined
+    global did_calc_throw, throw_controls, catch_controls, did_calc_catch
+    throwing_robot = robot
+    catching_robot = robot2 if robot == robot1 else robot1
+    if not did_calc_throw and not did_calc_catch:
+        print("Calculating combined for robot ", robot)
+        throwing_q = get_joint_angles(throwing_robot)
+        catching_q = get_joint_angles(catching_robot)
+        throwing_qdot = get_joint_velocities(throwing_robot)
+        catching_qdot = get_joint_velocities(catching_robot)
+        goal_pt = get_end_effector_pos(catching_robot, end_effector_link_idx - 1)
+        # is_throw_robot1, q, qdot_initial, qdot_catch, q_catch, goal, dt, T = 1.0, T_final = 0.4)
+        print("goal:", goal_pt)
+        throw_states, throw_controls, catch_states, catch_controls = nlp_combined(throwing_robot == robot1, throwing_q, throwing_qdot, catching_qdot, catching_q, goal_pt, dt, T=.3, T_final=0.2)
+        did_calc_throw = True
+        did_calc_catch = True
+
+    if step < len(throw_controls):
+        apply_joint_vels(throwing_robot, throw_controls[step])
+    else:
+        apply_joint_vels(throwing_robot, np.zeros(3))
+
+    if has_ball and step == len(throw_controls):
+        release_ball()
+        plot_ball_trajectory(get_ball_trajectory()[0])
+        apply_joint_vels(throwing_robot, np.zeros(3))
+
+    if step < len(catch_controls):
+        apply_joint_vels(catching_robot, catch_controls[step])
+    else:
+        apply_joint_vels(catching_robot, np.zeros(3))
+
+    if not has_ball:
+        attempt_catch(catching_robot, ball)
+
+    if has_ball and step > len(throw_controls):
+        did_calc_throw = False
+        did_calc_catch = False
+        return True
+
+    return False
+
+
+
+
 ## Main code
 if __name__ == '__main__': 
-    # physics_client = p.connect(p.GUI, options=f"--mp4=throw_catch.mp4")
-    physics_client = p.connect(p.GUI)
+    physics_client = p.connect(p.GUI, options=f"--mp4=throw_catch.mp4")
+    # physics_client = p.connect(p.GUI)
     p.setAdditionalSearchPath(pybullet_data.getDataPath())
     p.setGravity(0., 0., -9.81)
     #plane = p.loadURDF('plane.urdf')
@@ -313,18 +367,30 @@ if __name__ == '__main__':
     throw_catch_count = 0
     for step in range(10000):
 
+        # if state == "C" and catch_phase(catching_robot, step - catch_step):
+        #     throw_step = step
+        #     state = "T"
+        #     throwing_robot = catching_robot
+        #
+        # if state == "T" and throw_phase(throwing_robot, step-throw_step):
+        #     state = "C"
+        #     catching_robot = robot2 if throwing_robot == robot1 else robot1
+        #     catch_step = step
+        #     throw_catch_count += 1
+
         if state == "C" and catch_phase(catching_robot, step - catch_step):
             throw_step = step
-            state = "T"
+            state = "comb"
             throwing_robot = catching_robot
 
-        if state == "T" and throw_phase(throwing_robot, step-throw_step):
-            state = "C"
-            catching_robot = robot2 if throwing_robot == robot1 else robot1
+        if state == "comb" and combined_phase(throwing_robot, step-throw_step):
+            state = "comb"
+            throwing_robot = robot2 if throwing_robot == robot1 else robot1
             catch_step = step
+            throw_step = step
             throw_catch_count += 1
 
-        if throw_catch_count > 50:
+        if throw_catch_count > 10:
             break
         p.stepSimulation()
         time.sleep(1./240.)
