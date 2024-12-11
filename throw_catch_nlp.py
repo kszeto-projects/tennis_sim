@@ -9,6 +9,11 @@ t_catch = None
 def nlp(robot, q, qdot_initial, dt, T=1.0, init_ball_pos=INIT_BALL_POS, init_ball_vel=INIT_BALL_VEL):
     m = 3
     n = 3
+
+    # global throw_pos,throw_vel, t_catch
+    # throw_pos = throw_position
+    # throw_vel = throw_velocity
+    # t_catch = catch_time
     N = int(T / dt)
 
     Xsym = ca.MX.sym('X', n*(N+1),1)
@@ -22,6 +27,9 @@ def nlp(robot, q, qdot_initial, dt, T=1.0, init_ball_pos=INIT_BALL_POS, init_bal
     for k in range(N):
         x_next = X[:,k] + U[:,k] * dt
         cost += L(X[:,k], U[:,k], k * dt, robot, init_ball_pos=init_ball_pos, init_ball_vel=init_ball_vel)
+        # else:
+        #     cost += L_throw(X[:,k], U[:,k], k * dt, robot)
+        #     cost = Q(X[:, -1], U[:, -1])
         constraints.append(X[:,k+1] - x_next)
 
         
@@ -43,6 +51,12 @@ def nlp(robot, q, qdot_initial, dt, T=1.0, init_ball_pos=INIT_BALL_POS, init_bal
     ubx[-m * N:] = max_joint_vel
     lbx[-m * N:] = -max_joint_vel
 
+    #stack x and u into a single vector
+    # xs, us = [], []
+    # for i in range(N):
+    #     xs.append(X[:,i])
+    #     us.append(U[:,i])
+    # xs.append(X[:,N])
     casadi_x = ca.vertcat(Xsym, Usym)
     nlp_prob = {
         'x': casadi_x,
@@ -51,20 +65,24 @@ def nlp(robot, q, qdot_initial, dt, T=1.0, init_ball_pos=INIT_BALL_POS, init_bal
     }
     opts = {
         'ipopt': {
-            'print_level': 0,
-            # 'max_iter': 1000,
+            # 'print_level': 0,
+            'max_iter': 1000,
             'tol': 1e-6,
         }
     }
     solver = ca.nlpsol('solver', 'ipopt', nlp_prob,opts)
+    # print('solver:', solver)
     x0_guess = np.zeros((n * (N + 1) + m * N, 1))
     x0_guess[0:n * (N + 1)] = np.tile(q, N + 1).reshape(-1,1)
     x0_guess[n * (N + 1):] = np.tile(np.array([0.0, 0.01, 0.01]), N).flatten()[np.newaxis].T
     sol = solver(x0=x0_guess, lbx=lbx, ubx=ubx, lbg=lbg, ubg=ubg)
+    # print(sol['x'])
     final_cost = sol['f']
     print(f'Final cost: {final_cost}')
     optimal_states = np.array(sol['x'][0:n * (N + 1)].reshape((n, N + 1))).T
     optimal_controls = np.array(sol['x'][n * (N + 1):].reshape((m, N))).T
+    # print('optimal states:', optimal_states)
+    # print('optimal controls:', optimal_controls)
     return optimal_states, optimal_controls
 
 '''Throwing optimal control problem formulation: slightly different. trying to use planning horizon as optimization variable'''
@@ -72,6 +90,12 @@ def nlp_throw(is_robot1, q, qdot_initial, goal, dt, T = 1.0, T_final = 0.4):
     m = 3
     n = 3
 
+    # global throw_pos,throw_vel, t_catch
+    # throw_pos = throw_position
+    # throw_vel = throw_velocity
+    # t_catch = catch_time
+    # T = ca.MX.sym('T') # can try to make T a part of the optimization variables
+    # N = ca.floor(T / dt)
     N = int(T/dt)
     Xsym = ca.MX.sym('X', n * (N + 1), 1)
     Usym = ca.MX.sym('U', m * N, 1)
@@ -105,7 +129,7 @@ def nlp_throw(is_robot1, q, qdot_initial, goal, dt, T = 1.0, T_final = 0.4):
     constraints.append((U[:, 0] - qdot_initial))
     for k in range(N - 1):
         constraints.append((U[:, k + 1] - U[:, k]) / dt)
-
+    # constraints.append(ca.norm_2(forward_kinematics(X_T) + 0.8 * jacobian(X_T) @ U_T + 0.64 * ca_g - ca_end))
     constraints = ca.vertcat(*constraints).reshape((-1, 1))
 
     lbg = np.zeros(constraints.shape)
@@ -113,14 +137,25 @@ def nlp_throw(is_robot1, q, qdot_initial, goal, dt, T = 1.0, T_final = 0.4):
     max_joint_accel = 500
     lbg[-m * N:] = -max_joint_accel
     ubg[-m * N:] = max_joint_accel
-    lbg[-m * int(N*.15): ] = -5
-    ubg[-m * int(N*.15): ] = 5
+    # lbg[-m * N:-1] = -max_joint_accel
+    # ubg[-m * N:-1] = max_joint_accel
+    # lbg[-1] = -0.001
+    # ubg[-1] = 0.001
 
     ubx = np.inf * np.ones((n * (N + 1) + m * N, 1))
     lbx = -np.inf * np.ones((n * (N + 1) + m * N, 1))
     max_joint_vel = 500
     ubx[-m * N:] = max_joint_vel
     lbx[-m * N:] = -max_joint_vel
+    # ubx[-1] = 5
+    # lbx[-1] = 0.5
+
+    # stack x and u into a single vector
+    # xs, us = [], []
+    # for i in range(N):
+    #     xs.append(X[:,i])
+    #     us.append(U[:,i])
+    # xs.append(X[:,N])
     casadi_x = ca.vertcat(Xsym, Usym)
     nlp_prob = {
         'x': casadi_x,
@@ -129,8 +164,8 @@ def nlp_throw(is_robot1, q, qdot_initial, goal, dt, T = 1.0, T_final = 0.4):
     }
     opts = {
         'ipopt': {
-            'print_level': 0,
-            # 'max_iter': 1000,
+            # 'print_level': 0,
+            'max_iter': 1000,
             'tol': 1e-6,
         }
     }
@@ -140,10 +175,13 @@ def nlp_throw(is_robot1, q, qdot_initial, goal, dt, T = 1.0, T_final = 0.4):
     x0_guess[0:n * (N + 1)] = np.tile(q, N + 1).reshape(-1, 1)
     x0_guess[n * (N + 1):] = np.tile(np.array([0.0, 0.01, 0.01]), N).flatten()[np.newaxis].T
     sol = solver(x0=x0_guess, lbx=lbx, ubx=ubx, lbg=lbg, ubg=ubg)
+    # print(sol['x'])
     final_cost = sol['f']
     print(f'Final cost: {final_cost}')
     optimal_states = np.array(sol['x'][0:n * (N + 1)].reshape((n, N + 1))).T
     optimal_controls = np.array(sol['x'][n * (N + 1):].reshape((m, N))).T
+    # print('optimal states:', optimal_states)
+    # print('optimal controls:', optimal_controls)
     return optimal_states, optimal_controls
 
 def b(t, init_ball_pos=INIT_BALL_POS, init_ball_vel=INIT_BALL_VEL):
@@ -182,8 +220,8 @@ def L_throw(x, u, t, goal, is_robot1):
     # goal_unit_vel = (ee_pos[0:2] + goal[0:2]) / ca.norm_2(ee_pos[0:2] + goal[0:2])
 
     # internal_cost = 0.001 * ca.norm_2(x[2]) #(t**2*(1.0/24))*(ca.norm_2(ee_unit_vel - goal_unit_vel)) +
-    internal_cost = 0.000001 * ca.norm_2(u)**2
-    # internal_cost = 0
+    # internal_cost = 0.01 * ca.norm_2(u)**2
+    internal_cost = 0
     #0.05 * ca.norm_2(ee_vel) ** 2
     return internal_cost
 

@@ -191,10 +191,6 @@ def release_ball():
         catch_constraint = None
         print("Ball released!")
 
-def toggle_ball_grav():
-    global do_ball_grav
-    do_ball_grav = not do_ball_grav
-
 
 def quaternion_to_rotation_matrix(quaternion): 
     x, y, z, w = quaternion
@@ -215,7 +211,7 @@ def catch_phase(robot, step):
         q_robot = get_joint_angles(robot)
         qdot_robot = get_joint_velocities(robot)
         ball_pos, ball_vel = get_ball_state()
-        catch_states, catch_controls = nlp(robot==robot1, q_robot, qdot_robot, dt, T=.75, init_ball_pos=ball_pos, init_ball_vel=ball_vel)
+        catch_states, catch_controls = nlp(robot==robot1, q_robot, qdot_robot, dt, T=.85, init_ball_pos=ball_pos, init_ball_vel=ball_vel)
         did_calc_catch = True
 
     if step < len(catch_controls):
@@ -243,8 +239,8 @@ def throw_phase(robot, step):
         catching_q = get_joint_angles(catching_robot)
         throwing_qdot = get_joint_velocities(throwing_robot)
         catching_qdot = get_joint_velocities(catching_robot)
-        goal_pt = get_end_effector_pos(catching_robot, end_effector_link_idx-1)
-        throw_states, throw_controls = nlp_throw(throwing_robot == robot1, throwing_q, throwing_qdot, goal_pt, dt, T=.45, T_final=0.5)
+        goal_pt = get_end_effector_pos(catching_robot, end_effector_link_idx-2) #+ np.random.normal(np.array([0, -0.1, 0]), np.array([0, 0.1, 0]), 3)
+        throw_states, throw_controls = nlp_throw(throwing_robot == robot1, throwing_q, throwing_qdot, goal_pt, dt, T=.5, T_final=0.65)
         print("goal:", goal_pt)
         did_calc_throw = True
     if step < len(throw_controls):
@@ -259,8 +255,8 @@ def throw_phase(robot, step):
     return False
 ## Main code
 if __name__ == '__main__': 
-    physics_client = p.connect(p.GUI, options=f"--mp4=throw_catch.mp4")
-    # physics_client = p.connect(p.GUI)
+    # physics_client = p.connect(p.GUI, options=f"--mp4=throw_catch.mp4")
+    physics_client = p.connect(p.GUI)
     p.setAdditionalSearchPath(pybullet_data.getDataPath())
     p.setGravity(0., 0., -9.81)
     #plane = p.loadURDF('plane.urdf')
@@ -327,7 +323,7 @@ if __name__ == '__main__':
             catch_step = step
             throw_catch_count += 1
 
-        if throw_catch_count > 5:
+        if throw_catch_count > 50:
             break
         p.stepSimulation()
         time.sleep(1./240.)
