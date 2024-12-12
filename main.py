@@ -212,18 +212,21 @@ def quaternion_to_rotation_matrix(quaternion):
     
     return R
 
-def catch_phase(robot, step):
-    global did_calc_catch, catch_controls
+def catch_phase(robot, step, enable_mpc=False, mpc_step_interval = 50):
+    global did_calc_catch, catch_controls, last_computation_step
     if not did_calc_catch:
+        last_computation_step = step
         print("Calculating catch for robot ", robot)
         q_robot = get_joint_angles(robot)
         qdot_robot = get_joint_velocities(robot)
         ball_pos, ball_vel = get_ball_state()
         catch_states, catch_controls = nlp(robot==robot1, q_robot, qdot_robot, dt, T=.85, init_ball_pos=ball_pos, init_ball_vel=ball_vel)
         did_calc_catch = True
-
+    if step-last_computation_step > mpc_step_interval and enable_mpc:
+            did_calc_catch = False
+            plot_ball_trajectory(get_ball_trajectory()[0])
     if step < len(catch_controls):
-        apply_joint_vels(robot, catch_controls[step])
+        apply_joint_vels(robot, catch_controls[step-last_computation_step])
         apply_joint_vels(robot2 if robot == robot1 else robot1, np.zeros(3))
     if not has_ball:
         attempt_catch(robot, ball)
@@ -305,7 +308,8 @@ def combined_phase(robot, step):
 
     return False
 
-def run_game_of_catch(use_combined, num_steps = 10000, do_sleep=True):
+#select_method = 0 is baseline, 1 is combined solver, 2 is mpc for noise
+def run_game_of_catch(select_method, num_steps = 10000, do_sleep=True, max_num_catches = 10):
     #setup
     set_ball_pos(INIT_BALL_POS)
     set_ball_velocity(INIT_BALL_VEL)
@@ -331,8 +335,17 @@ def run_game_of_catch(use_combined, num_steps = 10000, do_sleep=True):
     last_cycle_time = 0
     last_cycle_step = 0
     cycle_times = []
+
+    #use damping if doing mpc (similar to air resistance)
+    if(select_method==2):
+            p.changeDynamics(ball, -1, linearDamping=0.04, angularDamping=0.04)
+    else:
+        p.changeDynamics(ball, -1, linearDamping=0, angularDamping=0)
+
     for step in range(num_steps):
-        if(not use_combined):
+
+        #BASELINE
+        if(select_method == 0):
             if state == "C" and catch_phase(catching_robot, step - catch_step):
                 throw_step = step
                 state = "T"
@@ -349,7 +362,9 @@ def run_game_of_catch(use_combined, num_steps = 10000, do_sleep=True):
                 catching_robot = robot2 if throwing_robot == robot1 else robot1
                 catch_step = step
                 throw_catch_count += 1
-        else:
+
+        #AUGMENTATION: Combined Solver
+        if(select_method == 1):
             if state == "C" and catch_phase(catching_robot, step - catch_step):
                 throw_step = step
                 state = "comb"
@@ -366,7 +381,31 @@ def run_game_of_catch(use_combined, num_steps = 10000, do_sleep=True):
                 throw_step = step
                 throw_catch_count += 1
 
-        if throw_catch_count > 10:
+        #AUGMENTATION: MPC & Noise
+        if(select_method==2):
+            if state == "C":
+                #apply wind to ball(TODO - change this to be a random, changing wind over duration of throw)
+                if(throw_catch_count == 0): #lower force for initial throw, because farther flight
+                    p.applyExternalForce(ball, -1, [0,0.05,0.01], [0, 0, 0], p.LINK_FRAME)      
+                else: 
+                    #to prevent wind blowing ball out of range of arm, blow in direction from goal towards robot center 
+                    y_dir = 1 if (goal_pt[1] - get_end_effector_pos(catching_robot, 1)[1]) < 0 else -1
+                    z_dir = 1 if (goal_pt[2] - get_end_effector_pos(catching_robot, 1)[2]) < 0 else -1
+                    p.applyExternalForce(ball, -1, [0,y_dir*0.03,z_dir*0.05], [0, 0, 0], p.WORLD_FRAME)
+
+                if catch_phase(catching_robot, step - catch_step, enable_mpc = True):
+                    throw_step = step
+                    state = "T"
+                    throwing_robot = catching_robot
+                    
+        
+            if state == "T" and throw_phase(throwing_robot, step-throw_step):
+                state = "C"
+                catching_robot = robot2 if throwing_robot == robot1 else robot1
+                catch_step = step
+                throw_catch_count += 1
+                goal_pt = get_end_effector_pos(catching_robot, end_effector_link_idx-1)
+        if throw_catch_count > max_num_catches:
             break
         p.stepSimulation()
         if(do_sleep):
@@ -390,7 +429,6 @@ if __name__ == '__main__':
     robot1 = p.loadURDF('three_link.urdf', basePosition=ROBOT1_BASE, useFixedBase=True)
     robot2 = p.loadURDF('three_link.urdf', basePosition=ROBOT2_BASE, useFixedBase=True)
     ball = p.loadURDF(generate_sphere(ball_rad, mass=ball_mass))
-    p.changeDynamics(ball, -1, linearDamping=0, angularDamping=0)
     dt = 1. / 240. #set timestep
 
     # get three movable joints and the end-effector link's index
@@ -418,7 +456,7 @@ if __name__ == '__main__':
     ### Run Throwing/Catching
 
     # Baseline (runs first): 
-    cycle_time_seperate, num_cycles_seperate = run_game_of_catch(use_combined=False, do_sleep = False, num_steps=5000)
+    run_game_of_catch(select_method=0, do_sleep = True, num_steps=5000, max_num_catches=5)
     
     
     #reset states after last game (unclear why doesn't take effect inside function)
@@ -426,20 +464,14 @@ if __name__ == '__main__':
     did_calc_throw = False
     
     # Combined Solver Augmentation: 
-    cycle_time_combined, num_cycles_combined = run_game_of_catch(use_combined=True, do_sleep = False, num_steps=5000)
+    run_game_of_catch(select_method=1, do_sleep = True, num_steps=5000,max_num_catches=5)
 
-    #Results Plotting
-    num_cycles_plot = min(len(cycle_time_seperate), len(cycle_time_combined))
-    # print(cycle_time_seperate[2:])
-    # print(cycle_time_combined[2:])
-    # print(num_cycles_seperate)
-    # print(num_cycles_combined)
-    plt.plot(cycle_time_seperate[2:num_cycles_plot], label = 'seperate')
-    plt.plot(cycle_time_combined[2:num_cycles_plot], label = 'combined')
-    plt.ylim(bottom=0)
-    plt.xticks( range(1, num_cycles_plot-2))
+    #reset states after last game 
+    did_calc_catch = False
+    did_calc_throw = False
 
-    plt.ylabel('duration (steps)')
-    plt.show()
+    # MPC Augmentation:
+    run_game_of_catch(select_method=2, do_sleep = True, num_steps=5000, max_num_catches=5)
+
     p.disconnect()
 
