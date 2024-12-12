@@ -1,7 +1,12 @@
 # ECE 276C Fall 2024 Final Project
 **TEAM: Aram Chemishkian, Jason Stanley, Kevin Szeto**
 ## Project: Throw and Catch
+***
+## How to run project
+In order to run the project, all you need to do is download the repo, install the necessary packages, and run the main script. This script will run each of three methods for throw and catch (baseline, combined solver, and mpc for noise) in consecutive order.
 
+***
+## Project Proposal
 **What are you trying to do?** 
 
 Control two independent robot manipulators to play a game of catch. The robots should be able to catch and throw the ball between themselves. Assuming a known (deterministic) trajectory of the ball (to not introduce complexity with camera models), the robot should catch the ball as quickly as possible. This entails moving to the nearest feasible future position of the ball.
