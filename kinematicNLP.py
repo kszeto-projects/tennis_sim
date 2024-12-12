@@ -52,9 +52,11 @@ def nlp(robot, q, qdot_initial, dt, T=1.0, init_ball_pos=INIT_BALL_POS, init_bal
     opts = {
         'ipopt': {
             'print_level': 0,
+            'sb': 'yes',
             # 'max_iter': 1000,
             'tol': 1e-6,
-        }
+        },
+        'print_time': False    # Suppress CasADi's timing output
     }
     solver = ca.nlpsol('solver', 'ipopt', nlp_prob,opts)
     x0_guess = np.zeros((n * (N + 1) + m * N, 1))
@@ -130,9 +132,11 @@ def nlp_throw(is_robot1, q, qdot_initial, goal, dt, T = 1.0, T_final = 0.4):
     opts = {
         'ipopt': {
             'print_level': 0,
+            'sb': 'yes',
             # 'max_iter': 1000,
             'tol': 1e-6,
-        }
+        },
+        'print_time': False    # Suppress CasADi's timing output
     }
     solver = ca.nlpsol('solver', 'ipopt', nlp_prob, opts)
     # print('solver:', solver)

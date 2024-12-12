@@ -8,6 +8,7 @@ import os
 import pdb
 from kinematicNLP import nlp, nlp_throw
 from config import GRAV, INIT_BALL_POS, INIT_BALL_VEL, ROBOT1_BASE, ROBOT2_BASE
+import matplotlib.pyplot as plt
 
 plot_id = None
 movable_joints = None
@@ -304,11 +305,83 @@ def combined_phase(robot, step):
 
     return False
 
+def run_game_of_catch(use_combined, num_steps = 10000, do_sleep=True):
+    #setup
+    set_ball_pos(INIT_BALL_POS)
+    set_ball_velocity(INIT_BALL_VEL)
+    # Set joint control mode to make the joints free to move (no motor control)
+    for robot_num, robot in enumerate([robot1, robot2]):
+        for joint_index in movable_joints[robot_num]:
+            p.setJointMotorControl2(bodyIndex=robot,
+                                    jointIndex=joint_index,
+                                    controlMode=p.VELOCITY_CONTROL,
+                                    force=0)  # Ensure no motor is controlling the joint
 
+    set_joint_angles(robot1, [0, 0, 0])
+    set_joint_angles(robot2, [np.pi, 0, 0])
+    set_joint_vels(robot1, [0, 0, 0])
+    set_joint_vels(robot2, [0, 0, 0])
+    catching_robot = robot1
+    throwing_robot = robot1
+    state = "C"
+    catch_step = 0
+    throw_step = 0
+    plot_ball_trajectory(get_ball_trajectory()[0])
+    throw_catch_count = 0
+    last_cycle_time = 0
+    last_cycle_step = 0
+    cycle_times = []
+    for step in range(num_steps):
+        if(not use_combined):
+            if state == "C" and catch_phase(catching_robot, step - catch_step):
+                throw_step = step
+                state = "T"
+                # if(catching_robot == robot1): #measure time between two consecutive bot1 caches
+                #     print("cycle steps:", step-catch_step)
+                if(throwing_robot == robot1): #cycle begins each time robot 2 catches
+                    print("cycle steps:", step-last_cycle_step)
+                    cycle_times.append(step-last_cycle_step)
+                    last_cycle_step = step 
+                throwing_robot = catching_robot
+            
+            if state == "T" and throw_phase(throwing_robot, step-throw_step):
+                state = "C"
+                catching_robot = robot2 if throwing_robot == robot1 else robot1
+                catch_step = step
+                throw_catch_count += 1
+        else:
+            if state == "C" and catch_phase(catching_robot, step - catch_step):
+                throw_step = step
+                state = "comb"
+                throwing_robot = catching_robot
+
+            if state == "comb" and combined_phase(throwing_robot, step-throw_step):
+                state = "comb"
+                if(throwing_robot == robot1): #cycle begins every time robot 2 catches
+                    print("cycle steps:", step-last_cycle_step)
+                    cycle_times.append(step-last_cycle_step)        
+                    last_cycle_step = step
+                throwing_robot = robot2 if throwing_robot == robot1 else robot1
+                catch_step = step
+                throw_step = step
+                throw_catch_count += 1
+
+        if throw_catch_count > 10:
+            break
+        p.stepSimulation()
+        if(do_sleep):
+            time.sleep(1./3000.)
+
+    #clean up sim
+    release_ball()
+    return cycle_times, throw_catch_count
+ 
 
 
 ## Main code
 if __name__ == '__main__': 
+
+    ### Sim Setup
     physics_client = p.connect(p.GUI, options=f"--mp4=throw_catch.mp4")
     # physics_client = p.connect(p.GUI)
     p.setAdditionalSearchPath(pybullet_data.getDataPath())
@@ -317,8 +390,8 @@ if __name__ == '__main__':
     robot1 = p.loadURDF('three_link.urdf', basePosition=ROBOT1_BASE, useFixedBase=True)
     robot2 = p.loadURDF('three_link.urdf', basePosition=ROBOT2_BASE, useFixedBase=True)
     ball = p.loadURDF(generate_sphere(ball_rad, mass=ball_mass))
-    set_ball_pos(INIT_BALL_POS)
-    set_ball_velocity(INIT_BALL_VEL)
+    p.changeDynamics(ball, -1, linearDamping=0, angularDamping=0)
+    dt = 1. / 240. #set timestep
 
     # get three movable joints and the end-effector link's index
     movable_joints = []
@@ -341,59 +414,32 @@ if __name__ == '__main__':
         for joint_index in movable_joints[robot_num]:
             p.changeDynamics(robot, joint_index, linearDamping=0, angularDamping=0)
         
-    p.changeDynamics(ball, -1, linearDamping=0, angularDamping=0)
 
-    # Set joint control mode to make the joints free to move (no motor control)
-    for robot_num, robot in enumerate([robot1, robot2]):
-        for joint_index in movable_joints[robot_num]:
-            p.setJointMotorControl2(bodyIndex=robot,
-                                    jointIndex=joint_index,
-                                    controlMode=p.VELOCITY_CONTROL,
-                                    force=0)  # Ensure no motor is controlling the joint
+    ### Run Throwing/Catching
 
+    # Baseline (runs first): 
+    cycle_time_seperate, num_cycles_seperate = run_game_of_catch(use_combined=False, do_sleep = False, num_steps=5000)
+    
+    
+    #reset states after last game (unclear why doesn't take effect inside function)
+    did_calc_catch = False
+    did_calc_throw = False
+    
+    # Combined Solver Augmentation: 
+    cycle_time_combined, num_cycles_combined = run_game_of_catch(use_combined=True, do_sleep = False, num_steps=5000)
 
-    # Set the initial joint angles
-    set_joint_angles(robot1, [0, 0, 0])
-    set_joint_angles(robot2, [np.pi, 0, 0])
-    set_joint_vels(robot1, [0, 0, 0])
-    set_joint_vels(robot2, [0, 0, 0])
-    dt = 1. / 240.
-    catching_robot = robot1
-    throwing_robot = robot1
-    state = "C"
-    catch_step = 0
-    throw_step = 0
-    plot_ball_trajectory(get_ball_trajectory()[0])
-    throw_catch_count = 0
-    for step in range(10000):
+    #Results Plotting
+    num_cycles_plot = min(len(cycle_time_seperate), len(cycle_time_combined))
+    # print(cycle_time_seperate[2:])
+    # print(cycle_time_combined[2:])
+    # print(num_cycles_seperate)
+    # print(num_cycles_combined)
+    plt.plot(cycle_time_seperate[2:num_cycles_plot], label = 'seperate')
+    plt.plot(cycle_time_combined[2:num_cycles_plot], label = 'combined')
+    plt.ylim(bottom=0)
+    plt.xticks( range(1, num_cycles_plot-2))
 
-        # if state == "C" and catch_phase(catching_robot, step - catch_step):
-        #     throw_step = step
-        #     state = "T"
-        #     throwing_robot = catching_robot
-        #
-        # if state == "T" and throw_phase(throwing_robot, step-throw_step):
-        #     state = "C"
-        #     catching_robot = robot2 if throwing_robot == robot1 else robot1
-        #     catch_step = step
-        #     throw_catch_count += 1
-
-        if state == "C" and catch_phase(catching_robot, step - catch_step):
-            throw_step = step
-            state = "comb"
-            throwing_robot = catching_robot
-
-        if state == "comb" and combined_phase(throwing_robot, step-throw_step):
-            state = "comb"
-            throwing_robot = robot2 if throwing_robot == robot1 else robot1
-            catch_step = step
-            throw_step = step
-            throw_catch_count += 1
-
-        if throw_catch_count > 10:
-            break
-        p.stepSimulation()
-        time.sleep(1./240.)
-
+    plt.ylabel('duration (steps)')
+    plt.show()
     p.disconnect()
 

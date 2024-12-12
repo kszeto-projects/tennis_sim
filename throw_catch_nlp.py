@@ -114,9 +114,11 @@ def nlp_combined(is_throw_robot1, q, qdot_initial, qdot_catch, q_catch, goal, dt
     opts = {
         'ipopt': {
             'print_level': 0,
+            'sb': 'yes',
             # 'max_iter': 1000,
             'tol': 1e-6,
-        }
+        },
+        'print_time': False    # Suppress CasADi's timing output
     }
 
 
